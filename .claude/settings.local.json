@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack)",
+      "Read(//c/Users/Masri/AppData/Roaming/**)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/msys64/ucrt64/bin/**)",
+      "Bash(npm -v)",
+      "Bash(cmd.exe /c \"node -v && npm -v\")",
+      "Bash(cmd.exe /c \"node -v\")",
+      "Bash(cmd.exe /c \"npm -v\")",
+      "Bash(powershell.exe -Command \"node -v; npm -v\")",
+      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\Masri\\\\spotilist'; npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias '@/*' --no-turbopack --yes 2>&1\")"
+    ]
+  }
+}
