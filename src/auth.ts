@@ -11,8 +11,6 @@ const SPOTIFY_SCOPES = [
   "user-read-playback-state",
 ].join(" ")
 
-const BASE_URL = process.env.NEXTAUTH_URL ?? process.env.AUTH_URL ?? "http://127.0.0.1:3737"
-
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   adapter: PrismaAdapter(prisma),
@@ -20,7 +18,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Spotify({
       clientId: process.env.SPOTIFY_CLIENT_ID!,
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
-      authorization: `https://accounts.spotify.com/authorize?scope=${encodeURIComponent(SPOTIFY_SCOPES)}&redirect_uri=${encodeURIComponent(`${BASE_URL}/api/auth/callback/spotify`)}`,
+      authorization: {
+        params: { scope: SPOTIFY_SCOPES },
+      },
     }),
   ],
   callbacks: {
