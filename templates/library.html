@@ -1,0 +1,140 @@
+{% extends "app_layout.html" %}
+{% block title %}Library — Spotilist{% endblock %}
+
+{% block main_content %}
+{% set status_labels = {
+  'plan_to_listen': 'Plan to Listen',
+  'completed':      'Completed'
+} %}
+{% set status_colors = {
+  'plan_to_listen': 'text-blue-400 border-blue-400',
+  'completed':      'text-purple-400 border-purple-400'
+} %}
+
+<div class="p-8">
+  <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <h1 class="text-3xl font-black">Library</h1>
+
+    <!-- Filters -->
+    <form method="get" class="flex gap-3">
+      <select name="status" onchange="this.form.submit()"
+              class="bg-sp-dark border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                     focus:outline-none focus:border-sp-green">
+        <option value="" {% if not status_filter %}selected{% endif %}>All Statuses</option>
+        <option value="plan_to_listen" {% if status_filter == 'plan_to_listen' %}selected{% endif %}>Plan to Listen</option>
+        <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>Completed</option>
+      </select>
+      <select name="type" onchange="this.form.submit()"
+              class="bg-sp-dark border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                     focus:outline-none focus:border-sp-green">
+        <option value="" {% if not type_filter %}selected{% endif %}>All Types</option>
+        <option value="album" {% if type_filter == 'album' %}selected{% endif %}>Albums</option>
+        <option value="track" {% if type_filter == 'track' %}selected{% endif %}>Tracks</option>
+      </select>
+      {% if status_filter or type_filter %}
+      <a href="{{ url_for('library') }}"
+         class="px-3 py-2 text-sm text-sp-muted hover:text-white border border-sp-subtle
+                rounded-lg transition-colors">
+        Clear
+      </a>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if entries %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+    {% for entry in entries %}
+    <div class="bg-sp-dark rounded-xl p-4 hover:bg-sp-card transition-colors group relative">
+      <!-- Image -->
+      {% if entry.image_url %}
+      <img src="{{ entry.image_url }}" alt="{{ entry.name }}"
+           class="w-full aspect-square object-cover rounded-lg mb-3">
+      {% else %}
+      <div class="w-full aspect-square bg-sp-card rounded-lg mb-3 flex items-center justify-center">
+        <svg class="w-8 h-8 text-sp-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+        </svg>
+      </div>
+      {% endif %}
+
+      <!-- Info -->
+      <p class="text-sm font-medium truncate" title="{{ entry.name }}">{{ entry.name }}</p>
+      <p class="text-xs text-sp-muted truncate">{{ entry.artist }}</p>
+      <span class="inline-block mt-1 text-xs border rounded px-1.5 py-0.5
+                   {{ status_colors.get(entry.status, 'text-sp-muted border-sp-subtle') }}">
+        {{ status_labels.get(entry.status, entry.status) }}
+      </span>
+      {% if entry.rating %}
+      <p class="text-xs text-sp-green mt-1">★ {{ entry.rating }}/10</p>
+      {% endif %}
+
+      <!-- Actions (shown on hover) -->
+      <div class="absolute top-3 right-3 hidden group-hover:flex gap-1">
+        <button title="Edit"
+                onclick="editEntry('{{ entry.id }}', '{{ entry.spotify_id }}', '{{ entry.type }}',
+                                   {{ entry.name | tojson }}, {{ entry.artist | tojson }},
+                                   '{{ entry.image_url or '' }}', '{{ entry.spotify_url or '' }}',
+                                   '{{ entry.release_date or '' }}', {{ entry.duration_ms or 'null' }},
+                                   '{{ entry.status }}', {{ entry.rating or 'null' }},
+                                   {{ entry.review | tojson if entry.review else 'null' }})"
+                class="w-8 h-8 rounded-full bg-sp-card hover:bg-sp-green hover:text-black
+                       flex items-center justify-center transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          </svg>
+        </button>
+        <button title="Delete"
+                onclick="deleteEntry('{{ entry.id }}', this)"
+                class="w-8 h-8 rounded-full bg-sp-card hover:bg-red-500
+                       flex items-center justify-center transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div class="text-center py-24">
+    <p class="text-sp-muted text-lg mb-4">
+      {% if status_filter or type_filter %}
+        No items match the current filters.
+      {% else %}
+        Your library is empty.
+      {% endif %}
+    </p>
+    {% if not status_filter and not type_filter %}
+    <a href="{{ url_for('search') }}"
+       class="inline-block bg-sp-green text-black font-bold px-6 py-3 rounded-full hover:scale-105 transition-transform">
+      Find Music
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  function editEntry(id, spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, status, rating, review) {
+    openModal(spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, {
+      id, status, rating, review
+    });
+  }
+
+  async function deleteEntry(id, btn) {
+    if (!confirm('Remove from library?')) return;
+    const resp = await fetch(`/api/library/${id}`, { method: 'DELETE' });
+    if (resp.ok) {
+      btn.closest('.group').remove();
+    } else {
+      alert('Failed to delete.');
+    }
+  }
+</script>
+{% endblock %}

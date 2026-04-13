@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Spotilist{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'sp-black':  '#121212',
+            'sp-dark':   '#181818',
+            'sp-card':   '#282828',
+            'sp-green':  '#1DB954',
+            'sp-muted':  '#b3b3b3',
+            'sp-subtle': '#535353',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-sp-black text-white min-h-screen">
+  {% block content %}{% endblock %}
+</body>
+</html>

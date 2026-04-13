@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="w-64 bg-sp-dark flex flex-col flex-shrink-0 border-r border-sp-card">
+    <!-- Logo -->
+    <div class="p-6 pb-2">
+      <span class="text-sp-green font-black text-2xl tracking-tight">Spotilist</span>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a href="{{ url_for('dashboard') }}"
+         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
+                {% if request.endpoint == 'dashboard' %}bg-sp-card text-white{% else %}text-sp-muted hover:text-white hover:bg-sp-card{% endif %}
+                transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        Dashboard
+      </a>
+      <a href="{{ url_for('search') }}"
+         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
+                {% if request.endpoint == 'search' %}bg-sp-card text-white{% else %}text-sp-muted hover:text-white hover:bg-sp-card{% endif %}
+                transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        Search
+      </a>
+      <a href="{{ url_for('library') }}"
+         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
+                {% if request.endpoint == 'library' %}bg-sp-card text-white{% else %}text-sp-muted hover:text-white hover:bg-sp-card{% endif %}
+                transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+        Library
+      </a>
+    </nav>
+
+    <!-- User profile -->
+    <div class="p-4 border-t border-sp-card">
+      <div class="flex items-center gap-3 mb-3">
+        {% if current_user.image %}
+          <img src="{{ current_user.image }}" alt="avatar"
+               class="w-9 h-9 rounded-full object-cover flex-shrink-0">
+        {% else %}
+          <div class="w-9 h-9 rounded-full bg-sp-card flex items-center justify-center flex-shrink-0">
+            <span class="text-sm font-bold">{{ (current_user.name or 'U')[0].upper() }}</span>
+          </div>
+        {% endif %}
+        <div class="min-w-0">
+          <p class="text-sm font-medium truncate">{{ current_user.name or 'User' }}</p>
+          <p class="text-xs text-sp-muted truncate">{{ current_user.email or '' }}</p>
+        </div>
+      </div>
+      <a href="{{ url_for('auth_logout') }}"
+         class="block w-full text-center text-xs text-sp-muted hover:text-white py-1.5 rounded
+                hover:bg-sp-card transition-colors">
+        Sign out
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="flex-1 overflow-y-auto bg-sp-black">
+    {% block main_content %}{% endblock %}
+  </main>
+</div>
+
+<!-- Add/Edit Library Modal -->
+<div id="library-modal" class="fixed inset-0 z-50 hidden bg-black/70 flex items-center justify-center p-4">
+  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-2xl">
+    <div class="p-6">
+      <!-- Header -->
+      <div class="flex gap-4 mb-6">
+        <img id="modal-image" src="" alt="" class="w-20 h-20 rounded-lg object-cover flex-shrink-0 bg-sp-card">
+        <div class="min-w-0 flex-1">
+          <p id="modal-type-badge"
+             class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-1"></p>
+          <h2 id="modal-title" class="font-bold text-lg leading-tight truncate"></h2>
+          <p id="modal-artist" class="text-sp-muted text-sm truncate"></p>
+        </div>
+        <button onclick="closeModal()"
+                class="text-sp-muted hover:text-white self-start flex-shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Status -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold uppercase tracking-widest text-sp-muted mb-2">Status</label>
+        <select id="modal-status"
+                class="w-full bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                       focus:outline-none focus:border-sp-green">
+          <option value="plan_to_listen">Plan to Listen</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+
+      <!-- Rating -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold uppercase tracking-widest text-sp-muted mb-2">
+          Rating <span id="rating-display" class="text-white"></span>
+        </label>
+        <div class="flex gap-1" id="rating-buttons">
+          {% for n in range(1, 11) %}
+          <button type="button"
+                  onclick="setRating({{ n }})"
+                  data-rating="{{ n }}"
+                  class="rating-btn flex-1 py-2 rounded text-sm font-bold bg-sp-card text-sp-muted
+                         hover:bg-sp-green hover:text-black transition-colors">
+            {{ n }}
+          </button>
+          {% endfor %}
+        </div>
+        <input type="hidden" id="modal-rating-value" value="0">
+      </div>
+
+      <!-- Review -->
+      <div class="mb-6">
+        <label class="block text-xs font-bold uppercase tracking-widest text-sp-muted mb-2">Notes</label>
+        <textarea id="modal-review" rows="3"
+                  placeholder="Write your thoughts..."
+                  class="w-full bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm resize-none
+                         focus:outline-none focus:border-sp-green placeholder-sp-subtle"></textarea>
+      </div>
+
+      <!-- Hidden state -->
+      <input type="hidden" id="modal-entry-id" value="">
+      <input type="hidden" id="modal-spotify-id" value="">
+      <input type="hidden" id="modal-item-type" value="">
+      <input type="hidden" id="modal-item-name" value="">
+      <input type="hidden" id="modal-item-artist" value="">
+      <input type="hidden" id="modal-item-image" value="">
+      <input type="hidden" id="modal-item-spotify-url" value="">
+      <input type="hidden" id="modal-item-release-date" value="">
+      <input type="hidden" id="modal-item-duration" value="">
+
+      <!-- Actions -->
+      <div class="flex gap-3">
+        <button onclick="closeModal()"
+                class="flex-1 py-2 rounded-full border border-sp-subtle text-sp-muted
+                       hover:text-white hover:border-white transition-colors text-sm font-bold">
+          Cancel
+        </button>
+        <button onclick="saveToLibrary()"
+                class="flex-1 py-2 rounded-full bg-sp-green text-black font-bold text-sm
+                       hover:scale-105 transition-transform">
+          Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentRating = 0;
+
+  function openModal(spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, existingEntry) {
+    document.getElementById('modal-spotify-id').value   = spotifyId  || '';
+    document.getElementById('modal-item-type').value    = type        || '';
+    document.getElementById('modal-item-name').value    = name        || '';
+    document.getElementById('modal-item-artist').value  = artist      || '';
+    document.getElementById('modal-item-image').value   = imageUrl    || '';
+    document.getElementById('modal-item-spotify-url').value = spotifyUrl || '';
+    document.getElementById('modal-item-release-date').value = releaseDate || '';
+    document.getElementById('modal-item-duration').value = durationMs || '';
+
+    document.getElementById('modal-title').textContent  = name   || '';
+    document.getElementById('modal-artist').textContent = artist || '';
+    document.getElementById('modal-type-badge').textContent = type || '';
+    const img = document.getElementById('modal-image');
+    img.src = imageUrl || '';
+    img.style.display = imageUrl ? '' : 'none';
+
+    if (existingEntry) {
+      document.getElementById('modal-entry-id').value = existingEntry.id || '';
+      document.getElementById('modal-status').value   = existingEntry.status || 'plan_to_listen';
+      setRating(existingEntry.rating || 0);
+      document.getElementById('modal-review').value   = existingEntry.review || '';
+    } else {
+      document.getElementById('modal-entry-id').value = '';
+      document.getElementById('modal-status').value   = 'plan_to_listen';
+      setRating(0);
+      document.getElementById('modal-review').value   = '';
+    }
+
+    document.getElementById('library-modal').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    document.getElementById('library-modal').classList.add('hidden');
+  }
+
+  function setRating(n) {
+    currentRating = n;
+    document.getElementById('modal-rating-value').value = n;
+    document.getElementById('rating-display').textContent = n > 0 ? `— ${n}/10` : '';
+    document.querySelectorAll('.rating-btn').forEach(btn => {
+      const v = parseInt(btn.dataset.rating);
+      if (v <= n) {
+        btn.classList.add('bg-sp-green', 'text-black');
+        btn.classList.remove('bg-sp-card', 'text-sp-muted');
+      } else {
+        btn.classList.remove('bg-sp-green', 'text-black');
+        btn.classList.add('bg-sp-card', 'text-sp-muted');
+      }
+    });
+  }
+
+  async function saveToLibrary() {
+    const entryId = document.getElementById('modal-entry-id').value;
+    const status  = document.getElementById('modal-status').value;
+    const rating  = parseInt(document.getElementById('modal-rating-value').value) || null;
+    const review  = document.getElementById('modal-review').value;
+
+    let resp;
+    if (entryId) {
+      resp = await fetch(`/api/library/${entryId}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status, rating, review}),
+      });
+    } else {
+      resp = await fetch('/api/library', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          spotifyId:   document.getElementById('modal-spotify-id').value,
+          type:        document.getElementById('modal-item-type').value,
+          name:        document.getElementById('modal-item-name').value,
+          artist:      document.getElementById('modal-item-artist').value,
+          imageUrl:    document.getElementById('modal-item-image').value,
+          spotifyUrl:  document.getElementById('modal-item-spotify-url').value,
+          releaseDate: document.getElementById('modal-item-release-date').value,
+          durationMs:  parseInt(document.getElementById('modal-item-duration').value) || null,
+          status, rating, review,
+        }),
+      });
+    }
+
+    if (resp.ok) {
+      closeModal();
+      location.reload();
+    } else {
+      alert('Something went wrong. Please try again.');
+    }
+  }
+
+  // Close modal when clicking backdrop
+  document.getElementById('library-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  // Global HTML escape helper used by all page scripts
+  function escH(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+
+{% block page_scripts %}{% endblock %}
+{% endblock %}

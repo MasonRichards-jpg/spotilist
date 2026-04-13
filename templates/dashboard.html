@@ -1,0 +1,190 @@
+{% extends "app_layout.html" %}
+{% block title %}Dashboard — Spotilist{% endblock %}
+
+{% block main_content %}
+{% set status_labels = {
+  'plan_to_listen': 'Plan to Listen',
+  'completed':      'Completed'
+} %}
+{% set status_colors = {
+  'plan_to_listen': 'text-blue-400',
+  'completed':      'text-purple-400'
+} %}
+
+<div class="p-8">
+  <h1 class="text-3xl font-black mb-6">Dashboard</h1>
+
+  <!-- Currently Listening -->
+  <div id="currently-playing-section" class="mb-8"></div>
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+    <div class="bg-sp-dark rounded-xl p-5">
+      <p class="text-sp-muted text-xs uppercase tracking-widest font-bold mb-1">Total</p>
+      <p class="text-4xl font-black">{{ total }}</p>
+    </div>
+    <div class="bg-sp-dark rounded-xl p-5">
+      <p class="text-sp-muted text-xs uppercase tracking-widest font-bold mb-1">Completed</p>
+      <p class="text-4xl font-black text-purple-400">{{ by_status.get('completed', 0) }}</p>
+    </div>
+    <div class="bg-sp-dark rounded-xl p-5">
+      <p class="text-sp-muted text-xs uppercase tracking-widest font-bold mb-1">Avg Rating</p>
+      <p class="text-4xl font-black">{{ avg_rating if avg_rating else '—' }}</p>
+    </div>
+  </div>
+
+  <!-- Recently added to library -->
+  {% if recent %}
+  <div class="mb-10">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-bold">Recently Added to Library</h2>
+      <a href="{{ url_for('library') }}" class="text-sp-green text-sm hover:underline">View all</a>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      {% for entry in recent %}
+      <div class="bg-sp-dark rounded-xl p-4 hover:bg-sp-card transition-colors">
+        {% if entry.image_url %}
+        <img src="{{ entry.image_url }}" alt="{{ entry.name }}"
+             class="w-full aspect-square object-cover rounded-lg mb-3">
+        {% else %}
+        <div class="w-full aspect-square bg-sp-card rounded-lg mb-3"></div>
+        {% endif %}
+        <p class="text-sm font-medium truncate">{{ entry.name }}</p>
+        <p class="text-xs text-sp-muted truncate">{{ entry.artist }}</p>
+        {% if entry.rating %}
+        <p class="text-xs text-sp-green mt-1">★ {{ entry.rating }}/10</p>
+        {% endif %}
+        <span class="inline-block mt-1 text-xs {{ status_colors.get(entry.status, 'text-sp-muted') }}">
+          {{ status_labels.get(entry.status, entry.status) }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="text-center py-8 mb-10">
+    <p class="text-sp-muted text-lg mb-4">Your library is empty.</p>
+    <a href="{{ url_for('search') }}"
+       class="inline-block bg-sp-green text-black font-bold px-6 py-3 rounded-full hover:scale-105 transition-transform">
+      Find Music
+    </a>
+  </div>
+  {% endif %}
+
+  <!-- Recently Played on Spotify -->
+  {% if recently_played %}
+  <div>
+    <h2 class="text-lg font-bold mb-4">Recently Played on Spotify</h2>
+    <div class="space-y-1.5 max-w-2xl" id="recently-played-list">
+      {% for track in recently_played %}
+      {% set artist = track.artists | map(attribute='name') | join(', ') %}
+      {% set image = track.album.images[0].url if track.album.images else '' %}
+      {% set already_added = track.id in in_library %}
+      <div class="flex items-center gap-4 p-3 bg-sp-dark rounded-lg hover:bg-sp-card transition-colors group">
+        {% if image %}
+        <img src="{{ image }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">
+        {% else %}
+        <div class="w-10 h-10 rounded bg-sp-card flex-shrink-0"></div>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium truncate">{{ track.name }}</p>
+          <p class="text-xs text-sp-muted truncate">{{ artist }}</p>
+        </div>
+        <span class="text-sp-muted text-xs flex-shrink-0">{{ track.duration_ms | duration }}</span>
+        {% if already_added %}
+        <span class="text-xs text-sp-green font-bold flex-shrink-0 px-3">In Library</span>
+        {% else %}
+        <button data-index="{{ loop.index0 }}"
+                onclick="addRecentTrack(this.dataset.index)"
+                class="bg-sp-green text-black text-xs font-bold px-3 py-1 rounded-full
+                       opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          Add
+        </button>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  // Pass server-side track list to JS — avoids broken onclick/tojson in attributes
+  const recentTracks = {{ recently_played | tojson }};
+
+  function addRecentTrack(i) {
+    const t = recentTracks[i];
+    const artist = (t.artists || []).map(a => a.name).join(', ');
+    const image  = t.album?.images?.[0]?.url || '';
+    openModal(
+      t.id, 'track', t.name, artist, image,
+      t.external_urls?.spotify || '',
+      t.album?.release_date || '',
+      t.duration_ms || null,
+      null
+    );
+  }
+
+  // ── Currently Listening ──────────────────────────────────────────────────
+  async function loadCurrentlyPlaying() {
+    const section = document.getElementById('currently-playing-section');
+    try {
+      const resp = await fetch('/api/spotify/currently-playing');
+      const data = await resp.json();
+
+      if (!data || !data.item || !data.is_playing) {
+        section.innerHTML = '';
+        return;
+      }
+
+      const track  = data.item;
+      const artist = (track.artists || []).map(a => a.name).join(', ');
+      const image  = track.album?.images?.[0]?.url || '';
+      const pct    = data.progress_ms && track.duration_ms
+                     ? Math.round(data.progress_ms / track.duration_ms * 100) : 0;
+
+      // Store for the modal button
+      window._nowPlaying = { track, artist, image };
+
+      section.innerHTML = `
+        <div class="bg-sp-dark rounded-xl p-5 flex items-center gap-5">
+          ${image ? `<img src="${escH(image)}" class="w-16 h-16 rounded-lg object-cover flex-shrink-0">` : ''}
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="inline-block w-2 h-2 rounded-full bg-sp-green animate-pulse"></span>
+              <span class="text-xs text-sp-muted uppercase tracking-widest font-bold">Now Playing</span>
+            </div>
+            <p class="font-bold text-base truncate">${escH(track.name)}</p>
+            <p class="text-sp-muted text-sm truncate">${escH(artist)}</p>
+            <div class="mt-2 h-1 bg-sp-card rounded-full overflow-hidden">
+              <div class="h-full bg-sp-green rounded-full transition-all" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <button onclick="addNowPlaying()"
+                  class="bg-sp-green text-black font-bold text-sm px-4 py-2 rounded-full
+                         hover:scale-105 transition-transform flex-shrink-0">
+            Add to Library
+          </button>
+        </div>`;
+    } catch (e) {
+      section.innerHTML = '';
+    }
+  }
+
+  function addNowPlaying() {
+    const { track, artist, image } = window._nowPlaying;
+    openModal(
+      track.id, 'track', track.name, artist, image,
+      track.external_urls?.spotify || '',
+      track.album?.release_date || '',
+      track.duration_ms || null,
+      null
+    );
+  }
+
+  loadCurrentlyPlaying();
+  setInterval(loadCurrentlyPlaying, 30000);
+</script>
+{% endblock %}
