@@ -121,7 +121,7 @@
     const artist = (a.artists || []).map(x => x.name).join(', ');
     openModal(a.id, 'album', a.name, artist,
               a.images?.[0]?.url || '', a.external_urls?.spotify || '',
-              a.release_date || '', null, null);
+              a.release_date || '', null, null, a.tracks?.total || null);
   }
 
   function openTrack(i) {

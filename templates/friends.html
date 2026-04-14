@@ -2,58 +2,289 @@
 {% block title %}Friends — Spotilist{% endblock %}
 
 {% block main_content %}
-<div class="p-8">
-  <h1 class="text-3xl font-black mb-2">Friends</h1>
-  <p class="text-sp-muted text-sm mb-10">See what your friends are listening to.</p>
+<div class="p-8 max-w-4xl mx-auto">
+  <h1 class="text-3xl font-black mb-1">Friends</h1>
+  <p class="text-sp-muted text-sm mb-8">Connect and see what everyone's been listening to.</p>
 
-  <!-- Placeholder content -->
-  <div class="max-w-lg mx-auto mt-20 text-center">
-    <div class="w-20 h-20 rounded-full bg-sp-dark border-2 border-sp-subtle
-                flex items-center justify-center mx-auto mb-6 shadow-card">
-      <svg class="w-9 h-9 text-sp-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <!-- Top row: friend code + add friend -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+
+    <!-- Your friend code -->
+    <div class="bg-sp-dark rounded-xl p-5 shadow-card border border-sp-subtle/20">
+      <p class="text-xs text-sp-muted uppercase tracking-widest font-semibold mb-2">Your Friend Code</p>
+      <div class="flex items-center gap-2">
+        <span id="my-friend-code"
+              class="font-mono text-2xl font-black text-sp-green tracking-widest">
+          {{ current_user.friend_code or '—' }}
+        </span>
+        <button onclick="copyFriendCode()"
+                title="Copy"
+                class="text-sp-muted hover:text-white transition-colors ml-1">
+          <svg id="copy-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+        </button>
+      </div>
+      <p class="text-xs text-sp-muted mt-2">Share this code so friends can add you.</p>
+    </div>
+
+    <!-- Add friend by code -->
+    <div class="bg-sp-dark rounded-xl p-5 shadow-card border border-sp-subtle/20">
+      <p class="text-xs text-sp-muted uppercase tracking-widest font-semibold mb-2">Add a Friend</p>
+      <div class="flex gap-2">
+        <input type="text" id="add-friend-input" maxlength="8"
+               placeholder="Enter friend code…"
+               class="flex-1 bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm font-mono
+                      focus:outline-none focus:border-sp-green uppercase placeholder-sp-subtle"
+               oninput="this.value = this.value.toUpperCase()">
+        <button onclick="sendFriendRequest()"
+                class="bg-sp-green text-black text-sm font-bold px-4 py-2 rounded-lg
+                       hover:opacity-90 transition-opacity flex-shrink-0">
+          Send
+        </button>
+      </div>
+      <p id="add-friend-msg" class="text-xs mt-2 h-4"></p>
+    </div>
+
+  </div>
+
+  <!-- Pending incoming requests -->
+  {% if incoming %}
+  <div class="mb-8">
+    <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-3 flex items-center gap-2">
+      Incoming Requests
+      <span class="bg-sp-green text-black text-xs font-black rounded-full w-5 h-5
+                   flex items-center justify-center">{{ incoming|length }}</span>
+    </h2>
+    <div class="space-y-2">
+      {% for req in incoming %}
+      {% set sender = req.sender %}
+      <div class="flex items-center gap-3 bg-sp-dark rounded-xl p-4 shadow-card border border-sp-subtle/20"
+           id="req-{{ req.id }}">
+        {% if sender.custom_image or sender.image %}
+        <img src="{{ sender.custom_image or sender.image }}" alt=""
+             class="w-10 h-10 rounded-full object-cover flex-shrink-0">
+        {% else %}
+        <div class="w-10 h-10 rounded-full bg-sp-card flex items-center justify-center flex-shrink-0">
+          <span class="text-sm font-bold">{{ (sender.name or 'U')[0].upper() }}</span>
+        </div>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-bold truncate">{{ sender.name or 'Unknown' }}</p>
+          <p class="text-xs text-sp-muted">Sent a friend request</p>
+        </div>
+        <div class="flex gap-2 flex-shrink-0">
+          <button onclick="respondRequest('{{ req.id }}', 'accepted')"
+                  class="bg-sp-green text-black text-xs font-bold px-3 py-1.5 rounded-full
+                         hover:opacity-90 transition-opacity">
+            Accept
+          </button>
+          <button onclick="respondRequest('{{ req.id }}', 'declined')"
+                  class="border border-sp-subtle text-sp-muted text-xs font-bold px-3 py-1.5 rounded-full
+                         hover:border-red-400 hover:text-red-400 transition-colors">
+            Decline
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Pending outgoing requests -->
+  {% if outgoing %}
+  <div class="mb-8">
+    <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-3">Sent Requests</h2>
+    <div class="space-y-2">
+      {% for req in outgoing %}
+      {% set receiver = req.receiver %}
+      <div class="flex items-center gap-3 bg-sp-dark rounded-xl p-4 shadow-card border border-sp-subtle/20 opacity-70"
+           id="out-{{ req.id }}">
+        {% if receiver.custom_image or receiver.image %}
+        <img src="{{ receiver.custom_image or receiver.image }}" alt=""
+             class="w-10 h-10 rounded-full object-cover flex-shrink-0">
+        {% else %}
+        <div class="w-10 h-10 rounded-full bg-sp-card flex items-center justify-center flex-shrink-0">
+          <span class="text-sm font-bold">{{ (receiver.name or 'U')[0].upper() }}</span>
+        </div>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-bold truncate">{{ receiver.name or 'Unknown' }}</p>
+          <p class="text-xs text-sp-muted">Pending…</p>
+        </div>
+        <span class="text-xs text-sp-muted flex-shrink-0 bg-sp-card px-2 py-1 rounded-full">Pending</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Friends list -->
+  <div class="mb-8">
+    <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-3">
+      Friends
+      {% if friend_users %}
+      <span class="text-white font-black">{{ friend_users|length }}</span>
+      {% endif %}
+    </h2>
+
+    {% if friend_users %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {% for friend in friend_users %}
+      <div class="flex items-center gap-3 bg-sp-dark rounded-xl p-4 shadow-card border border-sp-subtle/20 group">
+        {% if friend.custom_image or friend.image %}
+        <img src="{{ friend.custom_image or friend.image }}" alt=""
+             class="w-11 h-11 rounded-full object-cover flex-shrink-0">
+        {% else %}
+        <div class="w-11 h-11 rounded-full bg-sp-card flex items-center justify-center flex-shrink-0">
+          <span class="text-sm font-bold">{{ (friend.name or 'U')[0].upper() }}</span>
+        </div>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-bold truncate">{{ friend.name or 'User' }}</p>
+          {% if friend.friend_code %}
+          <p class="text-xs text-sp-muted font-mono">{{ friend.friend_code }}</p>
+          {% endif %}
+        </div>
+        <button onclick="removeFriend('{{ friend.id }}')"
+                title="Remove friend"
+                class="opacity-0 group-hover:opacity-100 text-sp-muted hover:text-red-400
+                       transition-all flex-shrink-0">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6h11M18 13l2 2m0 0l2 2m-2-2l2-2m-2 2l-2 2"/>
+          </svg>
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="text-center py-10 bg-sp-dark rounded-xl border border-dashed border-sp-subtle/40">
+      <svg class="w-10 h-10 text-sp-subtle mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
               d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
       </svg>
+      <p class="text-sp-muted text-sm">No friends yet — share your code or add one above.</p>
     </div>
-    <h2 class="text-xl font-bold mb-2">Coming Soon</h2>
-    <p class="text-sp-muted text-sm leading-relaxed max-w-sm mx-auto">
-      Friend features are on the way — add friends, share your library,
-      and see what everyone's been listening to.
-    </p>
+    {% endif %}
+  </div>
 
-    <!-- Teaser cards -->
-    <div class="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
-      <div class="bg-sp-dark rounded-xl p-5 shadow-card border border-sp-subtle/20">
-        <div class="w-9 h-9 rounded-lg bg-sp-card flex items-center justify-center mb-3">
-          <svg class="w-5 h-5 text-sp-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
+  <!-- Activity feed -->
+  {% if activity %}
+  <div>
+    <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-3">Friend Activity</h2>
+    <div class="space-y-2">
+      {% for entry in activity %}
+      {% set who = friend_map.get(entry.user_id) %}
+      <div class="flex items-center gap-3 bg-sp-dark rounded-xl p-3 shadow-card border border-sp-subtle/20">
+        <!-- Album art -->
+        {% if entry.image_url %}
+        <img src="{{ entry.image_url }}" alt=""
+             class="w-12 h-12 rounded-lg object-cover flex-shrink-0">
+        {% else %}
+        <div class="w-12 h-12 rounded-lg bg-sp-card flex-shrink-0"></div>
+        {% endif %}
+
+        <!-- Info -->
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-bold truncate">{{ entry.name }}</p>
+          <p class="text-xs text-sp-muted truncate">{{ entry.artist }}</p>
+          <div class="flex items-center gap-2 mt-0.5">
+            {% if who %}
+            {% if who.custom_image or who.image %}
+            <img src="{{ who.custom_image or who.image }}" alt=""
+                 class="w-4 h-4 rounded-full object-cover flex-shrink-0">
+            {% else %}
+            <div class="w-4 h-4 rounded-full bg-sp-card flex items-center justify-center flex-shrink-0">
+              <span class="text-xs">{{ (who.name or 'U')[0].upper() }}</span>
+            </div>
+            {% endif %}
+            <span class="text-xs text-sp-muted truncate">{{ who.name }}</span>
+            {% endif %}
+          </div>
         </div>
-        <p class="text-sm font-bold mb-1">Find Friends</p>
-        <p class="text-xs text-sp-muted">Search by username or connect via Spotify.</p>
-      </div>
-      <div class="bg-sp-dark rounded-xl p-5 shadow-card border border-sp-subtle/20">
-        <div class="w-9 h-9 rounded-lg bg-sp-card flex items-center justify-center mb-3">
-          <svg class="w-5 h-5 text-sp-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
-          </svg>
+
+        <!-- Rating + type badge -->
+        <div class="flex flex-col items-end gap-1 flex-shrink-0">
+          {% if entry.rating %}
+          <span class="text-sm font-black {% if entry.rating >= 7 %}text-sp-green{% elif entry.rating >= 5 %}text-white{% else %}text-red-400{% endif %}">
+            {{ entry.rating }}<span class="text-xs text-sp-muted font-normal">/10</span>
+          </span>
+          {% endif %}
+          <span class="text-xs text-sp-muted bg-sp-card px-2 py-0.5 rounded-full capitalize">
+            {{ entry.type }}
+          </span>
         </div>
-        <p class="text-sm font-bold mb-1">Activity Feed</p>
-        <p class="text-xs text-sp-muted">See what your friends have rated and added.</p>
       </div>
-      <div class="bg-sp-dark rounded-xl p-5 shadow-card border border-sp-subtle/20">
-        <div class="w-9 h-9 rounded-lg bg-sp-card flex items-center justify-center mb-3">
-          <svg class="w-5 h-5 text-sp-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-          </svg>
-        </div>
-        <p class="text-sm font-bold mb-1">Share & Compare</p>
-        <p class="text-xs text-sp-muted">Compare taste and recommend music.</p>
-      </div>
+      {% endfor %}
     </div>
   </div>
+  {% endif %}
+
 </div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  function copyFriendCode() {
+    const code = document.getElementById('my-friend-code').textContent.trim();
+    navigator.clipboard.writeText(code).then(() => {
+      const icon = document.getElementById('copy-icon');
+      icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>`;
+      setTimeout(() => {
+        icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>`;
+      }, 2000);
+    });
+  }
+
+  async function sendFriendRequest() {
+    const code = document.getElementById('add-friend-input').value.trim().toUpperCase();
+    const msg  = document.getElementById('add-friend-msg');
+    if (!code || code.length !== 8) {
+      msg.textContent = 'Please enter a valid 8-character friend code.';
+      msg.className = 'text-xs mt-2 h-4 text-red-400';
+      return;
+    }
+    const resp = await fetch('/api/friends/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ friendCode: code }),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      msg.textContent = data.message || 'Request sent!';
+      msg.className = 'text-xs mt-2 h-4 text-sp-green';
+      document.getElementById('add-friend-input').value = '';
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      msg.textContent = data.error || 'Something went wrong.';
+      msg.className = 'text-xs mt-2 h-4 text-red-400';
+    }
+  }
+
+  document.getElementById('add-friend-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendFriendRequest();
+  });
+
+  async function respondRequest(id, action) {
+    const resp = await fetch(`/api/friends/respond/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    if (resp.ok) {
+      const el = document.getElementById(`req-${id}`);
+      if (el) el.remove();
+      if (action === 'accepted') location.reload();
+    }
+  }
+
+  async function removeFriend(friendId) {
+    if (!confirm('Remove this friend?')) return;
+    const resp = await fetch(`/api/friends/remove/${friendId}`, { method: 'DELETE' });
+    if (resp.ok) location.reload();
+  }
+</script>
 {% endblock %}

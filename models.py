@@ -2,12 +2,19 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
 import uuid
+import random
+import string
 
 db = SQLAlchemy()
 
 
 def _uuid():
     return str(uuid.uuid4())
+
+
+def generate_friend_code():
+    """Generate a random 8-char uppercase alphanumeric code. Uniqueness enforced in app.py."""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
 
 class User(UserMixin, db.Model):
@@ -20,9 +27,10 @@ class User(UserMixin, db.Model):
     image = db.Column(db.String)
     banner_image = db.Column(db.String)
     custom_image = db.Column(db.String)
+    friend_code = db.Column(db.String(8), unique=True)
     access_token = db.Column(db.String)
     refresh_token = db.Column(db.String)
-    token_expires_at = db.Column(db.Integer)  # Unix timestamp
+    token_expires_at = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     library_entries = db.relationship(
@@ -35,6 +43,14 @@ class User(UserMixin, db.Model):
     favorite_songs = db.relationship(
         "FavoriteSong", backref="user", lazy=True, cascade="all, delete-orphan",
         order_by="FavoriteSong.position"
+    )
+    sent_requests = db.relationship(
+        "FriendRequest", foreign_keys="FriendRequest.sender_id",
+        backref="sender", lazy=True, cascade="all, delete-orphan"
+    )
+    received_requests = db.relationship(
+        "FriendRequest", foreign_keys="FriendRequest.receiver_id",
+        backref="receiver", lazy=True, cascade="all, delete-orphan"
     )
 
 
@@ -51,10 +67,10 @@ class LibraryEntry(db.Model):
     release_date = db.Column(db.String)
     spotify_url = db.Column(db.String)
     duration_ms = db.Column(db.Integer)
+    track_count = db.Column(db.Integer)   # albums only: number of tracks on the album
     status = db.Column(db.String, nullable=False, default="plan_to_listen")
     rating = db.Column(db.Integer)
     review = db.Column(db.Text)
-    track_count = db.Column(db.Integer)  # for album entries: number of tracks
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -94,4 +110,18 @@ class FavoriteSong(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "position", name="uq_fav_song_pos"),
+    )
+
+
+class FriendRequest(db.Model):
+    __tablename__ = "friend_requests"
+
+    id = db.Column(db.String, primary_key=True, default=_uuid)
+    sender_id = db.Column(db.String, db.ForeignKey("users.id"), nullable=False)
+    receiver_id = db.Column(db.String, db.ForeignKey("users.id"), nullable=False)
+    status = db.Column(db.String, nullable=False, default="pending")  # pending/accepted/declined
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("sender_id", "receiver_id", name="uq_friend_req"),
     )

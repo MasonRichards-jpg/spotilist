@@ -225,16 +225,16 @@
   </div>
 </div>
 
-<!-- Image Upload Preview Modal -->
+<!-- Image Upload Crop Modal -->
 <div id="img-preview-modal"
      class="fixed inset-0 z-[60] hidden bg-black/80 flex items-center justify-center p-4">
-  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
+  <div class="bg-sp-dark rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
 
     <!-- Header -->
     <div class="flex items-center justify-between px-5 py-4 border-b border-sp-subtle/30">
       <div>
-        <h3 class="font-bold text-sm">Preview</h3>
-        <p class="text-sp-muted text-xs mt-0.5">This is how it will look on your profile</p>
+        <h3 class="font-bold text-sm" id="crop-modal-title">Crop Image</h3>
+        <p class="text-sp-muted text-xs mt-0.5">Drag to reposition · scroll or use slider to zoom</p>
       </div>
       <button onclick="cancelPreview()" class="text-sp-muted hover:text-white">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -243,42 +243,48 @@
       </button>
     </div>
 
-    <!-- Banner Preview -->
-    <div id="banner-preview-section" class="hidden">
-      <div id="banner-preview-bg"
-           class="h-36 w-full bg-cover bg-center bg-sp-card"></div>
-      <div class="px-5 pb-5 -mt-8 flex items-end gap-3">
-        {% set display_image = current_user.custom_image or current_user.image %}
-        {% if display_image %}
-        <img src="{{ display_image }}" alt=""
-             class="w-16 h-16 rounded-full object-cover border-4 border-sp-dark flex-shrink-0">
-        {% else %}
-        <div class="w-16 h-16 rounded-full bg-sp-card border-4 border-sp-dark
-                    flex-shrink-0 flex items-center justify-center">
-          <span class="text-xl font-black">{{ (current_user.name or 'U')[0].upper() }}</span>
+    <!-- Crop area -->
+    <div class="px-5 pt-5 pb-3">
+      <div id="crop-viewport"
+           class="relative overflow-hidden bg-sp-card mx-auto select-none"
+           style="width:100%;height:240px;cursor:grab;">
+        <!-- The image is absolutely positioned inside here and dragged around -->
+        <img id="crop-img" src="" alt="" draggable="false"
+             style="position:absolute;top:0;left:0;transform-origin:0 0;pointer-events:none;user-select:none;">
+        <!-- Crop overlay mask (shows the actual crop area) -->
+        <div id="crop-mask" class="absolute inset-0 pointer-events-none"></div>
+      </div>
+    </div>
+
+    <!-- Zoom controls -->
+    <div class="px-5 pb-4 flex items-center gap-3">
+      <button id="zoom-out-btn" onclick="adjustZoom(-0.1)"
+              class="w-7 h-7 rounded-full bg-sp-card hover:bg-sp-subtle flex items-center justify-center flex-shrink-0 text-lg font-bold leading-none">−</button>
+      <input type="range" id="zoom-slider" min="0" max="100" value="0"
+             class="flex-1 accent-sp-green"
+             oninput="onZoomSlider(this.value)">
+      <button id="zoom-in-btn" onclick="adjustZoom(0.1)"
+              class="w-7 h-7 rounded-full bg-sp-card hover:bg-sp-subtle flex items-center justify-center flex-shrink-0 text-lg font-bold leading-none">+</button>
+    </div>
+
+    <!-- Profile preview strip -->
+    <div id="crop-preview-strip" class="px-5 pb-3 hidden">
+      <p class="text-xs text-sp-muted uppercase tracking-widest font-semibold mb-2">Preview</p>
+      <div class="bg-sp-black rounded-lg overflow-hidden">
+        <!-- Banner strip for pfp preview OR pfp preview for banner -->
+        <div id="strip-banner" class="h-16 w-full bg-cover bg-center"
+             style="{% if current_user.banner_image %}background-image:url('{{ current_user.banner_image }}'){% else %}background:linear-gradient(135deg,#1D2C3F,#0B1622){% endif %}">
         </div>
-        {% endif %}
-        <div class="pb-1 min-w-0">
-          <p class="font-bold text-sm truncate">{{ current_user.name or 'User' }}</p>
-          <p class="text-sp-muted text-xs">Member since {{ current_user.created_at.strftime('%B %Y') if current_user.created_at else '' }}</p>
+        <div class="px-4 -mt-5 pb-3 flex items-end gap-2">
+          <img id="strip-avatar" src="" alt=""
+               class="w-10 h-10 rounded-full object-cover border-2 border-sp-black flex-shrink-0">
+          <p class="text-xs font-bold pb-0.5 truncate">{{ current_user.name or 'User' }}</p>
         </div>
       </div>
     </div>
 
-    <!-- PFP Preview -->
-    <div id="pfp-preview-section" class="hidden">
-      <div class="h-24 w-full bg-cover bg-center"
-           style="{% if current_user.banner_image %}background-image:url('{{ current_user.banner_image }}'){% else %}background:linear-gradient(135deg,#1D2C3F,#0B1622){% endif %}">
-      </div>
-      <div class="px-5 pb-5 -mt-8 flex items-end gap-3">
-        <img id="pfp-preview-img" src="" alt=""
-             class="w-16 h-16 rounded-full object-cover border-4 border-sp-dark flex-shrink-0">
-        <div class="pb-1 min-w-0">
-          <p class="font-bold text-sm truncate">{{ current_user.name or 'User' }}</p>
-          <p class="text-sp-muted text-xs">Member since {{ current_user.created_at.strftime('%B %Y') if current_user.created_at else '' }}</p>
-        </div>
-      </div>
-    </div>
+    <!-- Hidden canvas for export -->
+    <canvas id="crop-canvas" style="display:none"></canvas>
 
     <!-- Actions -->
     <div class="px-5 py-4 flex gap-3 border-t border-sp-subtle/30">
@@ -396,10 +402,21 @@
   let artistResultsList = [];
   let songResultsList   = [];
 
-  // ── Profile image preview + upload ──────────────────────────────────────
+  // ── Profile image crop + upload ──────────────────────────────────────────
 
   let _pendingFile = null;
   let _pendingType = null; // 'pfp' or 'banner'
+
+  // Crop state
+  let _imgNaturalW = 0, _imgNaturalH = 0;
+  let _cropW = 0, _cropH = 0;   // viewport dimensions
+  let _zoom = 1;
+  let _minZoom = 1;
+  let _maxZoom = 4;
+  let _posX = 0, _posY = 0;     // top-left offset of img inside viewport
+  let _dragging = false;
+  let _dragStartX = 0, _dragStartY = 0;
+  let _dragStartPosX = 0, _dragStartPosY = 0;
 
   function previewImage(input, type) {
     if (!input.files[0]) return;
@@ -408,22 +425,150 @@
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target.result;
-      // Show the correct section
-      document.getElementById('banner-preview-section').classList.add('hidden');
-      document.getElementById('pfp-preview-section').classList.add('hidden');
+      const modal = document.getElementById('img-preview-modal');
+      const viewport = document.getElementById('crop-viewport');
+      const img = document.getElementById('crop-img');
+      const mask = document.getElementById('crop-mask');
+      const strip = document.getElementById('crop-preview-strip');
+      const stripAvatar = document.getElementById('strip-avatar');
+
+      document.getElementById('crop-modal-title').textContent =
+        type === 'banner' ? 'Crop Banner' : 'Crop Profile Photo';
+      document.getElementById('preview-save-label').textContent =
+        type === 'banner' ? 'Save Banner' : 'Save Photo';
+
+      // Viewport shape
       if (type === 'banner') {
-        document.getElementById('banner-preview-bg').style.backgroundImage = `url('${dataUrl}')`;
-        document.getElementById('banner-preview-section').classList.remove('hidden');
-        document.getElementById('preview-save-label').textContent = 'Save Banner';
+        viewport.style.height = '160px';
+        viewport.style.borderRadius = '8px';
+        mask.style.cssText = '';           // no circle mask
+        strip.classList.add('hidden');
       } else {
-        document.getElementById('pfp-preview-img').src = dataUrl;
-        document.getElementById('pfp-preview-section').classList.remove('hidden');
-        document.getElementById('preview-save-label').textContent = 'Save Photo';
+        viewport.style.height = '240px';
+        viewport.style.borderRadius = '50%';
+        // Semi-transparent corners to show circle crop
+        mask.style.cssText = 'box-shadow: 0 0 0 9999px rgba(11,22,34,0.7);border-radius:50%';
+        strip.classList.remove('hidden');
+        stripAvatar.src = dataUrl;
       }
-      document.getElementById('img-preview-modal').classList.remove('hidden');
+
+      // Load image to get natural dimensions, then init crop
+      img.onload = () => {
+        _imgNaturalW = img.naturalWidth;
+        _imgNaturalH = img.naturalHeight;
+        _cropW = viewport.offsetWidth;
+        _cropH = parseInt(viewport.style.height);
+
+        // minZoom: image must cover the viewport
+        _minZoom = Math.max(_cropW / _imgNaturalW, _cropH / _imgNaturalH);
+        _maxZoom = _minZoom * 4;
+        _zoom = _minZoom;
+        _posX = (_cropW - _imgNaturalW * _zoom) / 2;
+        _posY = (_cropH - _imgNaturalH * _zoom) / 2;
+
+        document.getElementById('zoom-slider').value = 0;
+        applyTransform();
+      };
+      img.src = dataUrl;
+
+      modal.classList.remove('hidden');
     };
     reader.readAsDataURL(_pendingFile);
   }
+
+  function applyTransform() {
+    const img = document.getElementById('crop-img');
+    img.style.width  = (_imgNaturalW * _zoom) + 'px';
+    img.style.height = (_imgNaturalH * _zoom) + 'px';
+    img.style.left   = _posX + 'px';
+    img.style.top    = _posY + 'px';
+  }
+
+  function constrainPosition() {
+    const maxX = 0;
+    const minX = _cropW - _imgNaturalW * _zoom;
+    const maxY = 0;
+    const minY = _cropH - _imgNaturalH * _zoom;
+    _posX = Math.min(maxX, Math.max(minX, _posX));
+    _posY = Math.min(maxY, Math.max(minY, _posY));
+  }
+
+  function adjustZoom(delta) {
+    const centerX = _cropW / 2;
+    const centerY = _cropH / 2;
+    // Keep center point fixed while zooming
+    const relX = (centerX - _posX) / (_imgNaturalW * _zoom);
+    const relY = (centerY - _posY) / (_imgNaturalH * _zoom);
+    _zoom = Math.min(_maxZoom, Math.max(_minZoom, _zoom + delta * (_maxZoom - _minZoom)));
+    _posX = centerX - relX * _imgNaturalW * _zoom;
+    _posY = centerY - relY * _imgNaturalH * _zoom;
+    constrainPosition();
+    applyTransform();
+    // Sync slider: 0 = minZoom, 100 = maxZoom
+    const pct = (_zoom - _minZoom) / (_maxZoom - _minZoom) * 100;
+    document.getElementById('zoom-slider').value = pct;
+  }
+
+  function onZoomSlider(val) {
+    const centerX = _cropW / 2;
+    const centerY = _cropH / 2;
+    const relX = (centerX - _posX) / (_imgNaturalW * _zoom);
+    const relY = (centerY - _posY) / (_imgNaturalH * _zoom);
+    _zoom = _minZoom + (val / 100) * (_maxZoom - _minZoom);
+    _posX = centerX - relX * _imgNaturalW * _zoom;
+    _posY = centerY - relY * _imgNaturalH * _zoom;
+    constrainPosition();
+    applyTransform();
+  }
+
+  // Drag to pan
+  const _vp = document.getElementById('crop-viewport');
+  _vp.addEventListener('mousedown', (e) => {
+    _dragging = true;
+    _dragStartX = e.clientX;
+    _dragStartY = e.clientY;
+    _dragStartPosX = _posX;
+    _dragStartPosY = _posY;
+    _vp.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!_dragging) return;
+    _posX = _dragStartPosX + (e.clientX - _dragStartX);
+    _posY = _dragStartPosY + (e.clientY - _dragStartY);
+    constrainPosition();
+    applyTransform();
+  });
+  window.addEventListener('mouseup', () => {
+    if (_dragging) { _dragging = false; _vp.style.cursor = 'grab'; }
+  });
+
+  // Touch drag
+  _vp.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    _dragging = true;
+    _dragStartX = t.clientX;
+    _dragStartY = t.clientY;
+    _dragStartPosX = _posX;
+    _dragStartPosY = _posY;
+    e.preventDefault();
+  }, { passive: false });
+  _vp.addEventListener('touchmove', (e) => {
+    if (!_dragging) return;
+    const t = e.touches[0];
+    _posX = _dragStartPosX + (t.clientX - _dragStartX);
+    _posY = _dragStartPosY + (t.clientY - _dragStartY);
+    constrainPosition();
+    applyTransform();
+    e.preventDefault();
+  }, { passive: false });
+  _vp.addEventListener('touchend', () => { _dragging = false; });
+
+  // Scroll to zoom
+  _vp.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    adjustZoom(e.deltaY < 0 ? 0.08 : -0.08);
+  }, { passive: false });
 
   function cancelPreview() {
     document.getElementById('img-preview-modal').classList.add('hidden');
@@ -439,37 +584,64 @@
     btn.disabled = true;
     label.textContent = 'Saving…';
 
-    const form = new FormData();
-    form.append('file', _pendingFile);
-    const endpoint = _pendingType === 'banner' ? '/api/profile/banner' : '/api/profile/picture';
-    const resp = await fetch(endpoint, { method: 'POST', body: form });
+    // Export cropped region to canvas
+    const canvas = document.getElementById('crop-canvas');
+    const isCircle = (_pendingType === 'pfp');
+    // Output size
+    const outW = isCircle ? 400 : 1200;
+    const outH = isCircle ? 400 : 400;
+    canvas.width  = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
 
-    if (resp.ok) {
-      if (_pendingType === 'pfp') {
-        const data = await resp.json();
-        const el = document.getElementById('profile-avatar');
-        const ts = '?t=' + Date.now();
-        if (el.tagName === 'IMG') {
-          el.src = data.imageUrl + ts;
-        } else {
-          const img = document.createElement('img');
-          img.id = 'profile-avatar';
-          img.src = data.imageUrl + ts;
-          img.alt = 'avatar';
-          img.className = 'w-24 h-24 rounded-full object-cover border-4 border-sp-black';
-          el.replaceWith(img);
-        }
-        document.querySelectorAll('img[alt="avatar"]').forEach(i => {
-          if (i.id !== 'profile-avatar') i.src = data.imageUrl + ts;
-        });
-        document.getElementById('img-preview-modal').classList.add('hidden');
-      } else {
-        location.reload();
-      }
-    } else {
-      label.textContent = 'Error — try again';
-      btn.disabled = false;
+    // Source rect: what portion of the natural image is visible in the crop viewport
+    const scaleBack = 1 / _zoom;
+    const srcX = -_posX * scaleBack;
+    const srcY = -_posY * scaleBack;
+    const srcW = _cropW * scaleBack;
+    const srcH = _cropH * scaleBack;
+
+    if (isCircle) {
+      ctx.beginPath();
+      ctx.arc(outW / 2, outH / 2, outW / 2, 0, Math.PI * 2);
+      ctx.clip();
     }
+    const cropImg = document.getElementById('crop-img');
+    ctx.drawImage(cropImg, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+
+    canvas.toBlob(async (blob) => {
+      const form = new FormData();
+      form.append('file', blob, 'crop.png');
+      const endpoint = _pendingType === 'banner' ? '/api/profile/banner' : '/api/profile/picture';
+      const resp = await fetch(endpoint, { method: 'POST', body: form });
+
+      if (resp.ok) {
+        if (_pendingType === 'pfp') {
+          const data = await resp.json();
+          const el = document.getElementById('profile-avatar');
+          const ts = '?t=' + Date.now();
+          if (el.tagName === 'IMG') {
+            el.src = data.imageUrl + ts;
+          } else {
+            const img = document.createElement('img');
+            img.id = 'profile-avatar';
+            img.src = data.imageUrl + ts;
+            img.alt = 'avatar';
+            img.className = 'w-24 h-24 rounded-full object-cover border-4 border-sp-black';
+            el.replaceWith(img);
+          }
+          document.querySelectorAll('img[alt="avatar"]').forEach(i => {
+            if (i.id !== 'profile-avatar') i.src = data.imageUrl + ts;
+          });
+          document.getElementById('img-preview-modal').classList.add('hidden');
+        } else {
+          location.reload();
+        }
+      } else {
+        label.textContent = 'Error — try again';
+        btn.disabled = false;
+      }
+    }, 'image/png');
   }
 
   document.getElementById('img-preview-modal').addEventListener('click', function(e) {

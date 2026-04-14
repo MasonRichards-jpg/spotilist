@@ -1,4 +1,6 @@
 import os
+import random
+import string
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -10,13 +12,14 @@ from flask_login import (
     login_user,
     logout_user,
 )
-from sqlalchemy import text
+from sqlalchemy import text, or_, and_
 from werkzeug.utils import secure_filename
 
 load_dotenv()
 
-from models import LibraryEntry, User, FavoriteArtist, FavoriteSong, db
+from models import LibraryEntry, User, FavoriteArtist, FavoriteSong, FriendRequest, db
 import spotify as sp
+import github_storage as gs
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
@@ -37,6 +40,38 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def _unique_friend_code():
+    """Generate a unique 8-char friend code."""
+    while True:
+        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        if not User.query.filter_by(friend_code=code).first():
+            return code
+
+
+def _store_image(file_storage, path_prefix: str) -> str | None:
+    """
+    Save an uploaded image file.
+    Uses GitHub storage if configured, otherwise local static/uploads/.
+    Returns the public URL, or None on failure.
+    """
+    if not file_storage or not allowed_file(file_storage.filename):
+        return None
+
+    file_bytes = file_storage.read()
+    ext = file_storage.filename.rsplit(".", 1)[1].lower() if "." in file_storage.filename else "jpg"
+
+    if gs.is_configured():
+        return gs.upload(file_bytes, f"images/{path_prefix}.{ext}")
+
+    # Local fallback
+    filename = secure_filename(f"{path_prefix}.{ext}")
+    upload_dir = os.path.join(app.root_path, "static", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    with open(os.path.join(upload_dir, filename), "wb") as f:
+        f.write(file_bytes)
+    return url_for("static", filename=f"uploads/{filename}")
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, user_id)
@@ -44,20 +79,33 @@ def load_user(user_id):
 
 with app.app_context():
     db.create_all()
-    # Migrate: add new columns to users table if they don't exist (SQLite safe)
+
+    # Migrate: add new columns to existing tables (SQLite safe — ignores if already exists)
     with db.engine.connect() as conn:
-        for col in ["banner_image VARCHAR", "custom_image VARCHAR"]:
+        migrations = [
+            ("users",           "banner_image VARCHAR"),
+            ("users",           "custom_image VARCHAR"),
+            ("users",           "friend_code VARCHAR(8)"),
+            ("library_entries", "track_count INTEGER"),
+        ]
+        for table, col_def in migrations:
             try:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_def}"))
                 conn.commit()
             except Exception:
-                pass  # Column already exists
+                pass
+
+    # Assign friend codes to existing users that don't have one
+    users_without_code = User.query.filter(User.friend_code.is_(None)).all()
+    for u in users_without_code:
+        u.friend_code = _unique_friend_code()
+    if users_without_code:
+        db.session.commit()
 
 
 # ---------------------------------------------------------------------------
 # Public routes
 # ---------------------------------------------------------------------------
-
 
 @app.route("/")
 def landing():
@@ -77,7 +125,6 @@ def login():
 # Spotify OAuth
 # ---------------------------------------------------------------------------
 
-
 @app.route("/auth/spotify")
 def auth_spotify():
     return redirect(sp.get_auth_url())
@@ -87,7 +134,6 @@ def auth_spotify():
 def auth_callback():
     code = request.args.get("code")
     error = request.args.get("error")
-
     if error or not code:
         return redirect(url_for("login"))
 
@@ -101,7 +147,6 @@ def auth_callback():
         return redirect(url_for("login"))
 
     import time
-
     user = User.query.filter_by(spotify_id=spotify_id).first()
     images = profile.get("images") or []
     image_url = images[0].get("url") if images else None
@@ -112,6 +157,7 @@ def auth_callback():
             name=profile.get("display_name"),
             email=profile.get("email"),
             image=image_url,
+            friend_code=_unique_friend_code(),
         )
         db.session.add(user)
     else:
@@ -119,12 +165,13 @@ def auth_callback():
         user.email = profile.get("email")
         if image_url:
             user.image = image_url
+        if not user.friend_code:
+            user.friend_code = _unique_friend_code()
 
     user.access_token = tokens["access_token"]
     user.refresh_token = tokens.get("refresh_token")
     user.token_expires_at = int(time.time()) + tokens.get("expires_in", 3600)
     db.session.commit()
-
     login_user(user)
     return redirect(url_for("dashboard"))
 
@@ -140,13 +187,11 @@ def auth_logout():
 # Protected pages
 # ---------------------------------------------------------------------------
 
-
 @app.route("/dashboard")
 @login_required
 def dashboard():
     token = sp.get_valid_token(current_user)
 
-    # Fetch recently played (deduplicated)
     rp_data = sp.recently_played(token, limit=50)
     seen = set()
     recently_played_tracks = []
@@ -157,7 +202,6 @@ def dashboard():
         seen.add(track["id"])
         recently_played_tracks.append(track)
 
-    # Auto-add any recently played tracks not yet in library as "completed"
     existing_ids = {
         row.spotify_id
         for row in LibraryEntry.query.filter_by(user_id=current_user.id)
@@ -179,14 +223,11 @@ def dashboard():
                 spotify_url=track.get("external_urls", {}).get("spotify"),
                 duration_ms=track.get("duration_ms"),
                 status="completed",
-                rating=None,
-                review=None,
             ))
     if new_entries:
         db.session.add_all(new_entries)
         db.session.commit()
 
-    # Query library (includes newly auto-added entries)
     entries = (
         LibraryEntry.query.filter_by(user_id=current_user.id)
         .order_by(LibraryEntry.created_at.desc())
@@ -223,13 +264,11 @@ def search():
 def library():
     status_filter = request.args.get("status", "")
     type_filter = request.args.get("type", "")
-
     query = LibraryEntry.query.filter_by(user_id=current_user.id)
     if status_filter:
         query = query.filter_by(status=status_filter)
     if type_filter:
         query = query.filter_by(type=type_filter)
-
     entries = query.order_by(LibraryEntry.created_at.desc()).all()
     return render_template(
         "library.html",
@@ -239,17 +278,17 @@ def library():
     )
 
 
-@app.route("/friends")
-@login_required
-def friends():
-    return render_template("friends.html")
-
-
 @app.route("/profile")
 @login_required
 def profile():
     entries = LibraryEntry.query.filter_by(user_id=current_user.id).all()
-    total_tracks = sum(1 for e in entries if e.type == "track")
+    track_entries = sum(1 for e in entries if e.type == "track")
+    album_track_sum = sum(
+        e.track_count or 0
+        for e in entries
+        if e.type == "album" and e.status == "completed"
+    )
+    total_tracks = track_entries + album_track_sum
     total_albums = sum(1 for e in entries if e.type == "album")
     plan_to_listen = sum(1 for e in entries if e.status == "plan_to_listen")
     completed = sum(1 for e in entries if e.status == "completed")
@@ -258,7 +297,6 @@ def profile():
     hours = round(
         sum(e.duration_ms or 0 for e in entries if e.type == "track") / 3_600_000, 1
     )
-
     fav_artists = {
         fa.position: fa
         for fa in FavoriteArtist.query.filter_by(user_id=current_user.id).all()
@@ -267,7 +305,6 @@ def profile():
         fs.position: fs
         for fs in FavoriteSong.query.filter_by(user_id=current_user.id).all()
     }
-
     return render_template(
         "profile.html",
         total_tracks=total_tracks,
@@ -281,10 +318,63 @@ def profile():
     )
 
 
+@app.route("/friends")
+@login_required
+def friends():
+    # Accepted friendships (either direction)
+    accepted = FriendRequest.query.filter(
+        or_(
+            and_(FriendRequest.sender_id == current_user.id,   FriendRequest.status == "accepted"),
+            and_(FriendRequest.receiver_id == current_user.id, FriendRequest.status == "accepted"),
+        )
+    ).all()
+
+    friend_ids = []
+    for fr in accepted:
+        fid = fr.receiver_id if fr.sender_id == current_user.id else fr.sender_id
+        friend_ids.append(fid)
+
+    friend_users = User.query.filter(User.id.in_(friend_ids)).all() if friend_ids else []
+
+    # Pending incoming requests
+    incoming = FriendRequest.query.filter_by(
+        receiver_id=current_user.id, status="pending"
+    ).all()
+
+    # Pending outgoing requests
+    outgoing = FriendRequest.query.filter_by(
+        sender_id=current_user.id, status="pending"
+    ).all()
+
+    # Activity feed: friends' recent library activity (ratings / completions)
+    activity = []
+    if friend_ids:
+        activity = (
+            LibraryEntry.query.filter(
+                LibraryEntry.user_id.in_(friend_ids),
+                LibraryEntry.rating.isnot(None),
+            )
+            .order_by(LibraryEntry.updated_at.desc())
+            .limit(30)
+            .all()
+        )
+
+    # Map user_id → User for activity display
+    friend_map = {u.id: u for u in friend_users}
+
+    return render_template(
+        "friends.html",
+        friend_users=friend_users,
+        incoming=incoming,
+        outgoing=outgoing,
+        activity=activity,
+        friend_map=friend_map,
+    )
+
+
 # ---------------------------------------------------------------------------
 # API: Spotify proxy
 # ---------------------------------------------------------------------------
-
 
 @app.route("/api/spotify/search")
 @login_required
@@ -293,7 +383,6 @@ def api_spotify_search():
     types = request.args.get("types", "album,track")
     if not q:
         return jsonify({"albums": {"items": []}, "tracks": {"items": []}, "artists": {"items": []}})
-
     token = sp.get_valid_token(current_user)
     results = sp.search(token, q, types)
     return jsonify(results)
@@ -303,22 +392,19 @@ def api_spotify_search():
 @login_required
 def api_recently_played():
     token = sp.get_valid_token(current_user)
-    results = sp.recently_played(token)
-    return jsonify(results)
+    return jsonify(sp.recently_played(token))
 
 
 @app.route("/api/spotify/currently-playing")
 @login_required
 def api_currently_playing():
     token = sp.get_valid_token(current_user)
-    data = sp.currently_playing(token)
-    return jsonify(data)
+    return jsonify(sp.currently_playing(token))
 
 
 # ---------------------------------------------------------------------------
 # API: Library CRUD
 # ---------------------------------------------------------------------------
-
 
 def _entry_dict(e):
     return {
@@ -331,6 +417,7 @@ def _entry_dict(e):
         "releaseDate": e.release_date,
         "spotifyUrl": e.spotify_url,
         "durationMs": e.duration_ms,
+        "trackCount": e.track_count,
         "status": e.status,
         "rating": e.rating,
         "review": e.review,
@@ -356,7 +443,6 @@ def api_library_get():
 @login_required
 def api_library_post():
     data = request.get_json(force=True)
-
     existing = LibraryEntry.query.filter_by(
         user_id=current_user.id, spotify_id=data["spotifyId"]
     ).first()
@@ -365,6 +451,8 @@ def api_library_post():
         existing.status = data.get("status", existing.status)
         existing.rating = data.get("rating") or existing.rating
         existing.review = data.get("review", existing.review)
+        if data.get("totalTracks") and existing.track_count is None:
+            existing.track_count = data["totalTracks"]
         existing.updated_at = datetime.utcnow()
         db.session.commit()
         return jsonify(_entry_dict(existing))
@@ -379,6 +467,7 @@ def api_library_post():
         release_date=data.get("releaseDate"),
         spotify_url=data.get("spotifyUrl"),
         duration_ms=data.get("durationMs"),
+        track_count=data.get("totalTracks"),
         status=data.get("status", "plan_to_listen"),
         rating=data.get("rating"),
         review=data.get("review"),
@@ -395,7 +484,6 @@ def api_library_patch(entry_id):
         id=entry_id, user_id=current_user.id
     ).first_or_404()
     data = request.get_json(force=True)
-
     if "status" in data:
         entry.status = data["status"]
     if "rating" in data:
@@ -422,87 +510,56 @@ def api_library_delete(entry_id):
 # API: Profile image upload
 # ---------------------------------------------------------------------------
 
-
 @app.route("/api/profile/picture", methods=["POST"])
 @login_required
 def api_profile_picture():
-    if "file" not in request.files:
-        return jsonify({"error": "No file"}), 400
-    file = request.files["file"]
-    if not file or not allowed_file(file.filename):
+    url = _store_image(request.files.get("file"), f"pfp_{current_user.id}")
+    if not url:
         return jsonify({"error": "Invalid file"}), 400
-    ext = file.filename.rsplit(".", 1)[1].lower()
-    filename = secure_filename(f"pfp_{current_user.id}.{ext}")
-    upload_dir = os.path.join(app.root_path, "static", "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    file.save(os.path.join(upload_dir, filename))
-    current_user.custom_image = url_for("static", filename=f"uploads/{filename}")
+    current_user.custom_image = url
     db.session.commit()
-    return jsonify({"imageUrl": current_user.custom_image})
+    return jsonify({"imageUrl": url})
 
 
 @app.route("/api/profile/banner", methods=["POST"])
 @login_required
 def api_profile_banner():
-    if "file" not in request.files:
-        return jsonify({"error": "No file"}), 400
-    file = request.files["file"]
-    if not file or not allowed_file(file.filename):
+    url = _store_image(request.files.get("file"), f"banner_{current_user.id}")
+    if not url:
         return jsonify({"error": "Invalid file"}), 400
-    ext = file.filename.rsplit(".", 1)[1].lower()
-    filename = secure_filename(f"banner_{current_user.id}.{ext}")
-    upload_dir = os.path.join(app.root_path, "static", "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    file.save(os.path.join(upload_dir, filename))
-    current_user.banner_image = url_for("static", filename=f"uploads/{filename}")
+    current_user.banner_image = url
     db.session.commit()
-    return jsonify({"bannerUrl": current_user.banner_image})
+    return jsonify({"bannerUrl": url})
 
 
 # ---------------------------------------------------------------------------
-# API: Favorite artists
+# API: Favorite artists / songs
 # ---------------------------------------------------------------------------
-
 
 @app.route("/api/favorites/artists/<int:position>", methods=["PUT", "DELETE"])
 @login_required
 def api_favorite_artist(position):
     if position not in range(1, 5):
         return jsonify({"error": "Position must be 1-4"}), 400
-
     if request.method == "DELETE":
-        FavoriteArtist.query.filter_by(
-            user_id=current_user.id, position=position
-        ).delete()
+        FavoriteArtist.query.filter_by(user_id=current_user.id, position=position).delete()
         db.session.commit()
         return jsonify({"success": True})
-
     data = request.get_json(force=True)
-    fa = FavoriteArtist.query.filter_by(
-        user_id=current_user.id, position=position
-    ).first()
+    fa = FavoriteArtist.query.filter_by(user_id=current_user.id, position=position).first()
     if fa:
         fa.spotify_id = data["spotifyId"]
         fa.name = data["name"]
         fa.image_url = data.get("imageUrl")
         fa.spotify_url = data.get("spotifyUrl")
     else:
-        fa = FavoriteArtist(
-            user_id=current_user.id,
-            position=position,
-            spotify_id=data["spotifyId"],
-            name=data["name"],
-            image_url=data.get("imageUrl"),
-            spotify_url=data.get("spotifyUrl"),
-        )
-        db.session.add(fa)
+        db.session.add(FavoriteArtist(
+            user_id=current_user.id, position=position,
+            spotify_id=data["spotifyId"], name=data["name"],
+            image_url=data.get("imageUrl"), spotify_url=data.get("spotifyUrl"),
+        ))
     db.session.commit()
     return jsonify({"success": True})
-
-
-# ---------------------------------------------------------------------------
-# API: Favorite songs
-# ---------------------------------------------------------------------------
 
 
 @app.route("/api/favorites/songs/<int:position>", methods=["PUT", "DELETE"])
@@ -510,18 +567,12 @@ def api_favorite_artist(position):
 def api_favorite_song(position):
     if position not in range(1, 5):
         return jsonify({"error": "Position must be 1-4"}), 400
-
     if request.method == "DELETE":
-        FavoriteSong.query.filter_by(
-            user_id=current_user.id, position=position
-        ).delete()
+        FavoriteSong.query.filter_by(user_id=current_user.id, position=position).delete()
         db.session.commit()
         return jsonify({"success": True})
-
     data = request.get_json(force=True)
-    fs = FavoriteSong.query.filter_by(
-        user_id=current_user.id, position=position
-    ).first()
+    fs = FavoriteSong.query.filter_by(user_id=current_user.id, position=position).first()
     if fs:
         fs.spotify_id = data["spotifyId"]
         fs.name = data["name"]
@@ -530,25 +581,103 @@ def api_favorite_song(position):
         fs.spotify_url = data.get("spotifyUrl")
         fs.duration_ms = data.get("durationMs")
     else:
-        fs = FavoriteSong(
-            user_id=current_user.id,
-            position=position,
-            spotify_id=data["spotifyId"],
-            name=data["name"],
-            artist=data["artist"],
-            image_url=data.get("imageUrl"),
-            spotify_url=data.get("spotifyUrl"),
-            duration_ms=data.get("durationMs"),
-        )
-        db.session.add(fs)
+        db.session.add(FavoriteSong(
+            user_id=current_user.id, position=position,
+            spotify_id=data["spotifyId"], name=data["name"],
+            artist=data["artist"], image_url=data.get("imageUrl"),
+            spotify_url=data.get("spotifyUrl"), duration_ms=data.get("durationMs"),
+        ))
     db.session.commit()
     return jsonify({"success": True})
 
 
 # ---------------------------------------------------------------------------
-# Template filters
+# API: Friends
 # ---------------------------------------------------------------------------
 
+@app.route("/api/friends/request", methods=["POST"])
+@login_required
+def api_friend_request():
+    data = request.get_json(force=True)
+    code = (data.get("friendCode") or "").strip().upper()
+    if not code:
+        return jsonify({"error": "Friend code required"}), 400
+
+    target = User.query.filter_by(friend_code=code).first()
+    if not target:
+        return jsonify({"error": "No user found with that friend code"}), 404
+    if target.id == current_user.id:
+        return jsonify({"error": "That's your own code!"}), 400
+
+    # Check for existing relationship
+    existing = FriendRequest.query.filter(
+        or_(
+            and_(FriendRequest.sender_id == current_user.id, FriendRequest.receiver_id == target.id),
+            and_(FriendRequest.sender_id == target.id, FriendRequest.receiver_id == current_user.id),
+        )
+    ).first()
+
+    if existing:
+        if existing.status == "accepted":
+            return jsonify({"error": "Already friends"}), 400
+        if existing.status == "pending":
+            # If they already sent us a request, auto-accept
+            if existing.receiver_id == current_user.id:
+                existing.status = "accepted"
+                db.session.commit()
+                return jsonify({"status": "accepted", "name": target.name})
+            return jsonify({"error": "Request already sent"}), 400
+
+    fr = FriendRequest(sender_id=current_user.id, receiver_id=target.id)
+    db.session.add(fr)
+    db.session.commit()
+    return jsonify({"status": "pending", "name": target.name})
+
+
+@app.route("/api/friends/respond/<request_id>", methods=["POST"])
+@login_required
+def api_friend_respond(request_id):
+    fr = FriendRequest.query.filter_by(
+        id=request_id, receiver_id=current_user.id, status="pending"
+    ).first_or_404()
+    action = request.get_json(force=True).get("action")  # "accept" or "decline"
+    if action == "accept":
+        fr.status = "accepted"
+    elif action == "decline":
+        fr.status = "declined"
+    else:
+        return jsonify({"error": "Invalid action"}), 400
+    db.session.commit()
+    return jsonify({"success": True, "status": fr.status})
+
+
+@app.route("/api/friends/remove/<friend_id>", methods=["DELETE"])
+@login_required
+def api_friend_remove(friend_id):
+    fr = FriendRequest.query.filter(
+        FriendRequest.status == "accepted",
+        or_(
+            and_(FriendRequest.sender_id == current_user.id, FriendRequest.receiver_id == friend_id),
+            and_(FriendRequest.sender_id == friend_id, FriendRequest.receiver_id == current_user.id),
+        )
+    ).first_or_404()
+    db.session.delete(fr)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/friends/pending-count")
+@login_required
+def api_pending_count():
+    count = FriendRequest.query.filter_by(
+        receiver_id=current_user.id, status="pending"
+    ).count()
+    return jsonify({"count": count})
+
+
+# ---------------------------------------------------------------------------
+# Template filters
+# ---------------------------------------------------------------------------
 
 @app.template_filter("duration")
 def duration_filter(ms):

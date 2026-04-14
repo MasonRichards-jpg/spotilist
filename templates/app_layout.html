@@ -163,6 +163,7 @@
       <input type="hidden" id="modal-item-spotify-url" value="">
       <input type="hidden" id="modal-item-release-date" value="">
       <input type="hidden" id="modal-item-duration" value="">
+      <input type="hidden" id="modal-total-tracks" value="">
 
       <!-- Actions -->
       <div class="flex gap-3">
@@ -184,7 +185,7 @@
 <script>
   let currentRating = 0;
 
-  function openModal(spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, existingEntry) {
+  function openModal(spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, existingEntry, totalTracks) {
     document.getElementById('modal-spotify-id').value   = spotifyId  || '';
     document.getElementById('modal-item-type').value    = type        || '';
     document.getElementById('modal-item-name').value    = name        || '';
@@ -193,6 +194,7 @@
     document.getElementById('modal-item-spotify-url').value = spotifyUrl || '';
     document.getElementById('modal-item-release-date').value = releaseDate || '';
     document.getElementById('modal-item-duration').value = durationMs || '';
+    document.getElementById('modal-total-tracks').value = totalTracks || '';
 
     document.getElementById('modal-title').textContent  = name   || '';
     document.getElementById('modal-artist').textContent = artist || '';
@@ -262,6 +264,7 @@
           spotifyUrl:  document.getElementById('modal-item-spotify-url').value,
           releaseDate: document.getElementById('modal-item-release-date').value,
           durationMs:  parseInt(document.getElementById('modal-item-duration').value) || null,
+          totalTracks: parseInt(document.getElementById('modal-total-tracks').value) || null,
           status, rating, review,
         }),
       });
