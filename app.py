@@ -310,6 +310,10 @@ def profile():
         fs.position: fs
         for fs in FavoriteSong.query.filter_by(user_id=current_user.id).all()
     }
+    friend_count = FriendRequest.query.filter(
+        FriendRequest.status == "accepted",
+        or_(FriendRequest.sender_id == current_user.id, FriendRequest.receiver_id == current_user.id)
+    ).count()
     return render_template(
         "profile.html",
         total_tracks=total_tracks,
@@ -320,6 +324,81 @@ def profile():
         hours=hours,
         fav_artists=fav_artists,
         fav_songs=fav_songs,
+        friend_count=friend_count,
+    )
+
+
+@app.route("/user/<user_id>")
+@login_required
+def user_profile(user_id):
+    """Public view of a user's profile (only accessible if friends)."""
+    target = User.query.get_or_404(user_id)
+    if target.id == current_user.id:
+        return redirect(url_for("profile"))
+
+    # Only friends can view each other's profiles
+    is_friend = FriendRequest.query.filter(
+        FriendRequest.status == "accepted",
+        or_(
+            and_(FriendRequest.sender_id == current_user.id,   FriendRequest.receiver_id == target.id),
+            and_(FriendRequest.sender_id == target.id,         FriendRequest.receiver_id == current_user.id),
+        )
+    ).first()
+    if not is_friend:
+        return redirect(url_for("friends"))
+
+    entries = LibraryEntry.query.filter_by(user_id=target.id).all()
+    track_entries = sum(1 for e in entries if e.type == "track")
+    album_track_sum = sum(
+        e.track_count or 0
+        for e in entries
+        if e.type == "album" and e.status == "completed"
+    )
+    total_tracks = track_entries + album_track_sum
+    total_albums = sum(1 for e in entries if e.type == "album")
+    plan_to_listen = sum(1 for e in entries if e.status == "plan_to_listen")
+    completed = sum(1 for e in entries if e.status == "completed")
+    rated = [e for e in entries if e.rating]
+    avg_rating = round(sum(e.rating for e in rated) / len(rated), 1) if rated else None
+    hours = round(
+        sum(e.duration_ms or 0 for e in entries if e.type == "track") / 3_600_000, 1
+    )
+    fav_artists = {
+        fa.position: fa
+        for fa in FavoriteArtist.query.filter_by(user_id=target.id).all()
+    }
+    fav_songs = {
+        fs.position: fs
+        for fs in FavoriteSong.query.filter_by(user_id=target.id).all()
+    }
+
+    # Friend count for target user
+    friend_count = FriendRequest.query.filter(
+        FriendRequest.status == "accepted",
+        or_(FriendRequest.sender_id == target.id, FriendRequest.receiver_id == target.id)
+    ).count()
+
+    # Recent library entries (completed + rated)
+    recent_entries = (
+        LibraryEntry.query.filter_by(user_id=target.id)
+        .order_by(LibraryEntry.updated_at.desc())
+        .limit(6)
+        .all()
+    )
+
+    return render_template(
+        "user_profile.html",
+        target=target,
+        total_tracks=total_tracks,
+        total_albums=total_albums,
+        plan_to_listen=plan_to_listen,
+        completed=completed,
+        avg_rating=avg_rating,
+        hours=hours,
+        fav_artists=fav_artists,
+        fav_songs=fav_songs,
+        friend_count=friend_count,
+        recent_entries=recent_entries,
     )
 
 
@@ -669,6 +748,71 @@ def api_friend_remove(friend_id):
     db.session.delete(fr)
     db.session.commit()
     return jsonify({"success": True})
+
+
+@app.route("/api/friends/now-playing/<friend_id>")
+@login_required
+def api_friend_now_playing(friend_id):
+    """Return currently playing or most recent track for a friend."""
+    # Verify friendship
+    is_friend = FriendRequest.query.filter(
+        FriendRequest.status == "accepted",
+        or_(
+            and_(FriendRequest.sender_id == current_user.id,   FriendRequest.receiver_id == friend_id),
+            and_(FriendRequest.sender_id == friend_id,         FriendRequest.receiver_id == current_user.id),
+        )
+    ).first()
+    if not is_friend:
+        return jsonify({"error": "Not friends"}), 403
+
+    friend = User.query.get_or_404(friend_id)
+    try:
+        token = sp.get_valid_token(friend)
+        current = sp.currently_playing(token)
+        if current and current.get("item"):
+            return jsonify({"track": current["item"], "is_playing": current.get("is_playing", False)})
+        # Fall back to most recently played
+        rp = sp.recently_played(token, limit=1)
+        items = rp.get("items", [])
+        if items:
+            return jsonify({"recent": items[0]["track"]})
+    except Exception:
+        pass
+    return jsonify({})
+
+
+@app.route("/api/friends/all-activity")
+@login_required
+def api_friends_all_activity():
+    """Return now-playing or most-recent track for all friends (for friends page)."""
+    accepted = FriendRequest.query.filter(
+        or_(
+            and_(FriendRequest.sender_id == current_user.id,   FriendRequest.status == "accepted"),
+            and_(FriendRequest.receiver_id == current_user.id, FriendRequest.status == "accepted"),
+        )
+    ).all()
+    friend_ids = [
+        fr.receiver_id if fr.sender_id == current_user.id else fr.sender_id
+        for fr in accepted
+    ]
+    result = {}
+    for fid in friend_ids:
+        friend = User.query.get(fid)
+        if not friend or not friend.access_token:
+            continue
+        try:
+            token = sp.get_valid_token(friend)
+            current = sp.currently_playing(token)
+            if current and current.get("item"):
+                result[fid] = {"track": current["item"], "is_playing": current.get("is_playing", False)}
+                continue
+            rp = sp.recently_played(token, limit=1)
+            items = rp.get("items", [])
+            if items:
+                result[fid] = {"recent": items[0]["track"]}
+        except Exception:
+            pass
+    return jsonify(result)
 
 
 @app.route("/api/friends/pending-count")

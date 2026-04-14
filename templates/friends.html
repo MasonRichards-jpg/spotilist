@@ -3,7 +3,17 @@
 
 {% block main_content %}
 <div class="p-8 max-w-4xl mx-auto">
-  <h1 class="text-3xl font-black mb-1">Friends</h1>
+  <div class="flex items-start justify-between mb-1">
+    <h1 class="text-3xl font-black">Friends</h1>
+    <button onclick="openAddModal()"
+            class="bg-sp-green text-black text-sm font-bold px-4 py-2 rounded-lg
+                   hover:opacity-90 transition-opacity flex items-center gap-2 flex-shrink-0">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Add to Library
+    </button>
+  </div>
   <p class="text-sp-muted text-sm mb-8">Connect and see what everyone's been listening to.</p>
 
   <!-- Top row: friend code + add friend -->
@@ -75,12 +85,12 @@
           <p class="text-xs text-sp-muted">Sent a friend request</p>
         </div>
         <div class="flex gap-2 flex-shrink-0">
-          <button onclick="respondRequest('{{ req.id }}', 'accepted')"
+          <button onclick="respondRequest('{{ req.id }}', 'accept')"
                   class="bg-sp-green text-black text-xs font-bold px-3 py-1.5 rounded-full
                          hover:opacity-90 transition-opacity">
             Accept
           </button>
-          <button onclick="respondRequest('{{ req.id }}', 'declined')"
+          <button onclick="respondRequest('{{ req.id }}', 'decline')"
                   class="border border-sp-subtle text-sp-muted text-xs font-bold px-3 py-1.5 rounded-full
                          hover:border-red-400 hover:text-red-400 transition-colors">
             Decline
@@ -130,9 +140,12 @@
     </h2>
 
     {% if friend_users %}
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="friends-grid">
       {% for friend in friend_users %}
-      <div class="flex items-center gap-3 bg-sp-dark rounded-xl p-4 shadow-card border border-sp-subtle/20 group">
+      <div class="flex items-center gap-3 bg-sp-dark rounded-xl p-4 shadow-card border border-sp-subtle/20 group
+                  hover:border-sp-subtle transition-colors cursor-pointer"
+           onclick="window.location='/user/{{ friend.id }}'"
+           id="friend-card-{{ friend.id }}">
         {% if friend.custom_image or friend.image %}
         <img src="{{ friend.custom_image or friend.image }}" alt=""
              class="w-11 h-11 rounded-full object-cover flex-shrink-0">
@@ -143,11 +156,12 @@
         {% endif %}
         <div class="flex-1 min-w-0">
           <p class="text-sm font-bold truncate">{{ friend.name or 'User' }}</p>
-          {% if friend.friend_code %}
-          <p class="text-xs text-sp-muted font-mono">{{ friend.friend_code }}</p>
-          {% endif %}
+          <!-- Now playing / recent track injected here by JS -->
+          <p class="text-xs text-sp-muted truncate" id="friend-activity-{{ friend.id }}">
+            <span class="animate-pulse">···</span>
+          </p>
         </div>
-        <button onclick="removeFriend('{{ friend.id }}')"
+        <button onclick="event.stopPropagation(); removeFriend('{{ friend.id }}')"
                 title="Remove friend"
                 class="opacity-0 group-hover:opacity-100 text-sp-muted hover:text-red-400
                        transition-all flex-shrink-0">
@@ -227,7 +241,64 @@
 {% endblock %}
 
 {% block page_scripts %}
+<!-- Add to Library Modal -->
+<div id="add-modal" class="fixed inset-0 z-[60] hidden bg-black/80 flex items-center justify-center p-4">
+  <div class="bg-sp-dark rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-sp-subtle/30">
+      <h3 class="font-bold text-sm">Add to Library</h3>
+      <button onclick="closeAddModal()" class="text-sp-muted hover:text-white">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="px-5 py-4">
+      <div class="flex gap-2 mb-4">
+        <input type="text" id="add-search-input" placeholder="Search Spotify…"
+               class="flex-1 bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                      focus:outline-none focus:border-sp-green"
+               oninput="debouncedSearch()">
+        <select id="add-search-type"
+                class="bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                       focus:outline-none focus:border-sp-green text-white">
+          <option value="track">Tracks</option>
+          <option value="album">Albums</option>
+        </select>
+      </div>
+      <div id="add-search-results" class="space-y-2 max-h-80 overflow-y-auto"></div>
+    </div>
+  </div>
+</div>
+
 <script>
+  // ── Friend activity ──────────────────────────────────────────────────────
+  (async () => {
+    try {
+      const resp = await fetch('/api/friends/all-activity');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      for (const [fid, info] of Object.entries(data)) {
+        const el = document.getElementById(`friend-activity-${fid}`);
+        if (!el) continue;
+        const track = info.track || info.recent;
+        if (!track) { el.textContent = ''; continue; }
+        const artists = (track.artists || []).map(a => a.name).join(', ');
+        if (info.track) {
+          el.innerHTML = `<span class="inline-block w-1.5 h-1.5 rounded-full bg-sp-green animate-pulse mr-1 align-middle"></span>${track.name} · ${artists}`;
+        } else {
+          el.textContent = `Last: ${track.name} · ${artists}`;
+        }
+      }
+      // Clear loading dots for friends with no data
+      document.querySelectorAll('[id^="friend-activity-"]').forEach(el => {
+        if (el.querySelector('.animate-pulse') && !el.innerHTML.includes('sp-green')) {
+          el.textContent = '';
+        }
+      });
+    } catch (_) {}
+  })();
+
+  // ── Friend code ──────────────────────────────────────────────────────────
   function copyFriendCode() {
     const code = document.getElementById('my-friend-code').textContent.trim();
     navigator.clipboard.writeText(code).then(() => {
@@ -239,6 +310,7 @@
     });
   }
 
+  // ── Friend requests ──────────────────────────────────────────────────────
   async function sendFriendRequest() {
     const code = document.getElementById('add-friend-input').value.trim().toUpperCase();
     const msg  = document.getElementById('add-friend-msg');
@@ -277,7 +349,7 @@
     if (resp.ok) {
       const el = document.getElementById(`req-${id}`);
       if (el) el.remove();
-      if (action === 'accepted') location.reload();
+      if (action === 'accept') location.reload();
     }
   }
 
@@ -285,6 +357,89 @@
     if (!confirm('Remove this friend?')) return;
     const resp = await fetch(`/api/friends/remove/${friendId}`, { method: 'DELETE' });
     if (resp.ok) location.reload();
+  }
+
+  // ── Add to Library from Spotify ──────────────────────────────────────────
+  function openAddModal() {
+    document.getElementById('add-modal').classList.remove('hidden');
+    document.getElementById('add-search-input').focus();
+  }
+  function closeAddModal() {
+    document.getElementById('add-modal').classList.add('hidden');
+    document.getElementById('add-search-input').value = '';
+    document.getElementById('add-search-results').innerHTML = '';
+  }
+  document.getElementById('add-modal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('add-modal')) closeAddModal();
+  });
+  document.getElementById('add-search-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAddModal();
+  });
+
+  let _searchTimer = null;
+  function debouncedSearch() {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(runSearch, 350);
+  }
+
+  async function runSearch() {
+    const q = document.getElementById('add-search-input').value.trim();
+    const type = document.getElementById('add-search-type').value;
+    const results = document.getElementById('add-search-results');
+    if (!q) { results.innerHTML = ''; return; }
+    results.innerHTML = '<p class="text-xs text-sp-muted text-center py-4">Searching…</p>';
+    try {
+      const resp = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}&types=${type}`);
+      const data = await resp.json();
+      const items = type === 'track'
+        ? (data.tracks?.items || [])
+        : (data.albums?.items || []);
+      if (!items.length) {
+        results.innerHTML = '<p class="text-xs text-sp-muted text-center py-4">No results.</p>';
+        return;
+      }
+      results.innerHTML = items.slice(0, 8).map(item => {
+        const img = (item.images || item.album?.images || [])[0]?.url || '';
+        const artist = type === 'track'
+          ? (item.artists || []).map(a => a.name).join(', ')
+          : (item.artists || []).map(a => a.name).join(', ');
+        return `
+          <div class="flex items-center gap-3 p-2 hover:bg-sp-card rounded-lg cursor-pointer transition-colors"
+               onclick="addToLibrary(${JSON.stringify(item).replace(/"/g, '&quot;')}, '${type}')">
+            ${img ? `<img src="${img}" alt="" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">` : '<div class="w-10 h-10 rounded-lg bg-sp-card flex-shrink-0"></div>'}
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-bold truncate">${item.name}</p>
+              <p class="text-xs text-sp-muted truncate">${artist}</p>
+            </div>
+            <span class="text-xs text-sp-muted bg-sp-card px-2 py-0.5 rounded-full capitalize flex-shrink-0">${type}</span>
+          </div>`;
+      }).join('');
+    } catch (_) {
+      results.innerHTML = '<p class="text-xs text-red-400 text-center py-4">Search failed.</p>';
+    }
+  }
+
+  async function addToLibrary(item, type) {
+    const payload = {
+      spotifyId: item.id,
+      type,
+      name: item.name,
+      artist: (item.artists || []).map(a => a.name).join(', '),
+      imageUrl: (item.images || item.album?.images || [])[0]?.url || null,
+      releaseDate: item.release_date || item.album?.release_date || null,
+      spotifyUrl: item.external_urls?.spotify || null,
+      durationMs: item.duration_ms || null,
+      totalTracks: item.total_tracks || null,
+      status: 'plan_to_listen',
+    };
+    const resp = await fetch('/api/library', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (resp.ok) {
+      closeAddModal();
+    }
   }
 </script>
 {% endblock %}

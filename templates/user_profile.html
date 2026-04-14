@@ -1,0 +1,226 @@
+{% extends "app_layout.html" %}
+{% block title %}{{ target.name or 'User' }} — Spotilist{% endblock %}
+
+{% block main_content %}
+<div>
+
+  <!-- Banner -->
+  <div class="relative h-48 overflow-hidden bg-gradient-to-br from-sp-card via-sp-dark to-sp-black">
+    {% if target.banner_image %}
+    <img src="{{ target.banner_image }}" alt="banner" class="w-full h-full object-cover">
+    {% endif %}
+  </div>
+
+  <!-- Avatar + username row -->
+  <div class="px-8 flex items-end gap-4 -mt-10 pb-5">
+    <div class="relative flex-shrink-0">
+      {% set display_image = target.custom_image or target.image %}
+      {% if display_image %}
+      <img src="{{ display_image }}" alt="avatar"
+           class="w-24 h-24 rounded-full object-cover border-4 border-sp-black">
+      {% else %}
+      <div class="w-24 h-24 rounded-full bg-sp-card border-4 border-sp-black
+                  flex items-center justify-center">
+        <span class="text-3xl font-black">{{ (target.name or 'U')[0].upper() }}</span>
+      </div>
+      {% endif %}
+    </div>
+    <div class="pb-1">
+      <h1 class="text-2xl font-black leading-tight">{{ target.name or 'User' }}</h1>
+      <div class="flex items-center gap-3 mt-1">
+        {% if target.created_at %}
+        <p class="text-sp-muted text-sm">Member since {{ target.created_at.strftime('%B %Y') }}</p>
+        {% endif %}
+        <span class="text-sp-muted text-sm">·</span>
+        <p class="text-sp-muted text-sm">
+          <span class="text-white font-bold">{{ friend_count }}</span> friend{{ 's' if friend_count != 1 else '' }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="border-t border-b border-sp-card bg-sp-dark">
+    <div class="px-8 py-5 flex flex-wrap gap-x-10 gap-y-4">
+      <div class="text-center">
+        <p class="text-2xl font-black text-sp-green">{{ total_tracks }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Tracks</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black">{{ hours }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Hours</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black {% if avg_rating and avg_rating >= 7 %}text-sp-green{% endif %}">
+          {{ avg_rating if avg_rating else '—' }}
+        </p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Mean Score</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black">{{ total_albums }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Albums</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black text-purple-400">{{ completed }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Completed</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black text-blue-400">{{ plan_to_listen }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Plan to Listen</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Now playing placeholder (loaded via JS) -->
+  <div id="friend-now-playing" class="px-8 pt-6"></div>
+
+  <!-- Content: Favorite Artists + Favorite Songs -->
+  <div class="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <!-- Favorite Artists -->
+    <div>
+      <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-4">Favorite Artists</h2>
+      <div class="grid grid-cols-2 gap-3">
+        {% for pos in range(1, 5) %}
+        {% set artist = fav_artists.get(pos) %}
+        {% if artist %}
+        <div class="relative rounded-xl overflow-hidden aspect-square bg-sp-card">
+          {% if artist.image_url %}
+          <img src="{{ artist.image_url }}" alt="{{ artist.name }}" class="w-full h-full object-cover">
+          {% else %}
+          <div class="w-full h-full flex items-center justify-center">
+            <svg class="w-10 h-10 text-sp-subtle" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+            </svg>
+          </div>
+          {% endif %}
+          <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-3">
+            <p class="text-sm font-bold truncate leading-tight">{{ artist.name }}</p>
+          </div>
+        </div>
+        {% else %}
+        <div class="aspect-square bg-sp-dark rounded-xl border border-sp-subtle/20
+                    flex items-center justify-center text-sp-muted/40">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"/>
+          </svg>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Favorite Songs -->
+    <div>
+      <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-4">Favorite Songs</h2>
+      <div class="space-y-2">
+        {% for pos in range(1, 5) %}
+        {% set song = fav_songs.get(pos) %}
+        {% if song %}
+        <div class="flex items-center gap-3 p-3 bg-sp-dark rounded-xl">
+          {% if song.image_url %}
+          <img src="{{ song.image_url }}" alt="{{ song.name }}" class="w-12 h-12 rounded-lg object-cover flex-shrink-0">
+          {% else %}
+          <div class="w-12 h-12 rounded-lg bg-sp-card flex-shrink-0 flex items-center justify-center">
+            <svg class="w-5 h-5 text-sp-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+            </svg>
+          </div>
+          {% endif %}
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-bold truncate">{{ song.name }}</p>
+            <p class="text-xs text-sp-muted truncate">{{ song.artist }}</p>
+          </div>
+          <span class="text-xs text-sp-muted flex-shrink-0">{{ song.duration_ms | duration }}</span>
+        </div>
+        {% else %}
+        <div class="flex items-center gap-3 p-3 bg-sp-dark rounded-xl border border-dashed border-sp-subtle/20">
+          <div class="w-12 h-12 rounded-lg bg-sp-card flex-shrink-0 flex items-center justify-center">
+            <svg class="w-5 h-5 text-sp-muted/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+          </div>
+          <span class="text-sm text-sp-muted/40">Empty</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Recent Activity -->
+  {% if recent_entries %}
+  <div class="px-8 pb-8">
+    <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-4">Recent Activity</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+      {% for entry in recent_entries %}
+      <div class="bg-sp-dark rounded-xl overflow-hidden border border-sp-subtle/20 hover:border-sp-subtle transition-colors">
+        {% if entry.image_url %}
+        <img src="{{ entry.image_url }}" alt="{{ entry.name }}" class="w-full aspect-square object-cover">
+        {% else %}
+        <div class="w-full aspect-square bg-sp-card flex items-center justify-center">
+          <svg class="w-8 h-8 text-sp-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+          </svg>
+        </div>
+        {% endif %}
+        <div class="p-2">
+          <p class="text-xs font-bold truncate">{{ entry.name }}</p>
+          <p class="text-xs text-sp-muted truncate">{{ entry.artist }}</p>
+          {% if entry.rating %}
+          <p class="text-xs font-black mt-1 {% if entry.rating >= 7 %}text-sp-green{% elif entry.rating >= 5 %}text-white{% else %}text-red-400{% endif %}">
+            {{ entry.rating }}/10
+          </p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  // Load friend's currently playing / recent track
+  (async () => {
+    const container = document.getElementById('friend-now-playing');
+    try {
+      const resp = await fetch('/api/friends/now-playing/{{ target.id }}');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (!data || (!data.track && !data.recent)) return;
+
+      const isLive = !!data.track;
+      const track = data.track || data.recent;
+      const images = track.album?.images || [];
+      const imgUrl = images[0]?.url || '';
+      const artists = (track.artists || []).map(a => a.name).join(', ');
+
+      container.innerHTML = `
+        <div class="inline-flex items-center gap-3 bg-sp-dark rounded-xl px-4 py-3 border border-sp-subtle/20 mb-2">
+          ${imgUrl ? `<img src="${imgUrl}" alt="" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">` : ''}
+          <div class="min-w-0">
+            <p class="text-xs text-sp-muted uppercase tracking-widest font-semibold mb-0.5">
+              ${isLive
+                ? '<span class="inline-block w-2 h-2 rounded-full bg-sp-green animate-pulse mr-1"></span>Now Playing'
+                : 'Last Played'}
+            </p>
+            <p class="text-sm font-bold truncate">${track.name}</p>
+            <p class="text-xs text-sp-muted truncate">${artists}</p>
+          </div>
+        </div>`;
+    } catch (_) {}
+  })();
+</script>
+{% endblock %}
