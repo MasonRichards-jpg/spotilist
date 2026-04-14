@@ -6,9 +6,6 @@ import requests
 
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-SPOTIFY_REDIRECT_URI = os.environ.get(
-    "SPOTIFY_REDIRECT_URI", "http://localhost:5000/auth/callback"
-)
 SPOTIFY_SCOPES = " ".join([
     "user-read-email",
     "user-read-recently-played",
@@ -21,11 +18,16 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 API_BASE = "https://api.spotify.com/v1"
 
 
+def _redirect_uri():
+    """Read at call time so the env var is always current."""
+    return os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:5000/auth/callback")
+
+
 def get_auth_url():
     params = {
         "client_id": SPOTIFY_CLIENT_ID,
         "response_type": "code",
-        "redirect_uri": SPOTIFY_REDIRECT_URI,
+        "redirect_uri": _redirect_uri(),
         "scope": SPOTIFY_SCOPES,
     }
     return "https://accounts.spotify.com/authorize?" + urlencode(params)
@@ -37,7 +39,7 @@ def exchange_code(code):
         data={
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": SPOTIFY_REDIRECT_URI,
+            "redirect_uri": _redirect_uri(),
         },
         auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
     )
