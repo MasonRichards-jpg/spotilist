@@ -73,13 +73,27 @@ def get_valid_token(user):
 
 def spotify_get(token, path_or_url, params=None):
     url = path_or_url if path_or_url.startswith("http") else API_BASE + path_or_url
+    
     resp = requests.get(
         url,
         headers={"Authorization": f"Bearer {token}"},
         params=params,
     )
-    return resp.json()
 
+    # 🔍 Debug logging
+    print("SPOTIFY GET URL:", url)
+    print("STATUS:", resp.status_code)
+    print("RESPONSE TEXT:", resp.text)
+
+    # ❌ Handle errors BEFORE parsing JSON
+    if resp.status_code != 200:
+        raise Exception(f"Spotify API error {resp.status_code}: {resp.text}")
+
+    # ✅ Safe JSON parsing
+    try:
+        return resp.json()
+    except Exception:
+        raise Exception(f"Invalid JSON response: {resp.text}")
 
 def get_user_profile(token):
     return spotify_get(token, "/me")
