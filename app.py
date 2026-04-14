@@ -23,9 +23,14 @@ import github_storage as gs
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-    "DATABASE_URL", "sqlite:///spotilist.db"
-)
+_db_url = os.environ.get("DATABASE_URL", "sqlite:///spotilist.db")
+# Normalise Render/Heroku "postgres://" shorthand
+if _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+# Use psycopg3 dialect (psycopg[binary]) instead of psycopg2
+if _db_url.startswith("postgresql://"):
+    _db_url = _db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
