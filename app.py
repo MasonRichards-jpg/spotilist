@@ -10,10 +10,12 @@ from flask_login import (
     login_user,
     logout_user,
 )
+from sqlalchemy import text
+from werkzeug.utils import secure_filename
 
 load_dotenv()
 
-from models import LibraryEntry, User, db
+from models import LibraryEntry, User, FavoriteArtist, FavoriteSong, db
 import spotify as sp
 
 app = Flask(__name__)
@@ -28,6 +30,12 @@ db.init_app(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -36,6 +44,14 @@ def load_user(user_id):
 
 with app.app_context():
     db.create_all()
+    # Migrate: add new columns to users table if they don't exist (SQLite safe)
+    with db.engine.connect() as conn:
+        for col in ["banner_image VARCHAR", "custom_image VARCHAR"]:
+            try:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +239,48 @@ def library():
     )
 
 
+@app.route("/friends")
+@login_required
+def friends():
+    return render_template("friends.html")
+
+
+@app.route("/profile")
+@login_required
+def profile():
+    entries = LibraryEntry.query.filter_by(user_id=current_user.id).all()
+    total_tracks = sum(1 for e in entries if e.type == "track")
+    total_albums = sum(1 for e in entries if e.type == "album")
+    plan_to_listen = sum(1 for e in entries if e.status == "plan_to_listen")
+    completed = sum(1 for e in entries if e.status == "completed")
+    rated = [e for e in entries if e.rating]
+    avg_rating = round(sum(e.rating for e in rated) / len(rated), 1) if rated else None
+    hours = round(
+        sum(e.duration_ms or 0 for e in entries if e.type == "track") / 3_600_000, 1
+    )
+
+    fav_artists = {
+        fa.position: fa
+        for fa in FavoriteArtist.query.filter_by(user_id=current_user.id).all()
+    }
+    fav_songs = {
+        fs.position: fs
+        for fs in FavoriteSong.query.filter_by(user_id=current_user.id).all()
+    }
+
+    return render_template(
+        "profile.html",
+        total_tracks=total_tracks,
+        total_albums=total_albums,
+        plan_to_listen=plan_to_listen,
+        completed=completed,
+        avg_rating=avg_rating,
+        hours=hours,
+        fav_artists=fav_artists,
+        fav_songs=fav_songs,
+    )
+
+
 # ---------------------------------------------------------------------------
 # API: Spotify proxy
 # ---------------------------------------------------------------------------
@@ -234,7 +292,7 @@ def api_spotify_search():
     q = request.args.get("q", "").strip()
     types = request.args.get("types", "album,track")
     if not q:
-        return jsonify({"albums": {"items": []}, "tracks": {"items": []}})
+        return jsonify({"albums": {"items": []}, "tracks": {"items": []}, "artists": {"items": []}})
 
     token = sp.get_valid_token(current_user)
     results = sp.search(token, q, types)
@@ -361,6 +419,133 @@ def api_library_delete(entry_id):
 
 
 # ---------------------------------------------------------------------------
+# API: Profile image upload
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/profile/picture", methods=["POST"])
+@login_required
+def api_profile_picture():
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    file = request.files["file"]
+    if not file or not allowed_file(file.filename):
+        return jsonify({"error": "Invalid file"}), 400
+    ext = file.filename.rsplit(".", 1)[1].lower()
+    filename = secure_filename(f"pfp_{current_user.id}.{ext}")
+    upload_dir = os.path.join(app.root_path, "static", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    file.save(os.path.join(upload_dir, filename))
+    current_user.custom_image = url_for("static", filename=f"uploads/{filename}")
+    db.session.commit()
+    return jsonify({"imageUrl": current_user.custom_image})
+
+
+@app.route("/api/profile/banner", methods=["POST"])
+@login_required
+def api_profile_banner():
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    file = request.files["file"]
+    if not file or not allowed_file(file.filename):
+        return jsonify({"error": "Invalid file"}), 400
+    ext = file.filename.rsplit(".", 1)[1].lower()
+    filename = secure_filename(f"banner_{current_user.id}.{ext}")
+    upload_dir = os.path.join(app.root_path, "static", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    file.save(os.path.join(upload_dir, filename))
+    current_user.banner_image = url_for("static", filename=f"uploads/{filename}")
+    db.session.commit()
+    return jsonify({"bannerUrl": current_user.banner_image})
+
+
+# ---------------------------------------------------------------------------
+# API: Favorite artists
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/favorites/artists/<int:position>", methods=["PUT", "DELETE"])
+@login_required
+def api_favorite_artist(position):
+    if position not in range(1, 5):
+        return jsonify({"error": "Position must be 1-4"}), 400
+
+    if request.method == "DELETE":
+        FavoriteArtist.query.filter_by(
+            user_id=current_user.id, position=position
+        ).delete()
+        db.session.commit()
+        return jsonify({"success": True})
+
+    data = request.get_json(force=True)
+    fa = FavoriteArtist.query.filter_by(
+        user_id=current_user.id, position=position
+    ).first()
+    if fa:
+        fa.spotify_id = data["spotifyId"]
+        fa.name = data["name"]
+        fa.image_url = data.get("imageUrl")
+        fa.spotify_url = data.get("spotifyUrl")
+    else:
+        fa = FavoriteArtist(
+            user_id=current_user.id,
+            position=position,
+            spotify_id=data["spotifyId"],
+            name=data["name"],
+            image_url=data.get("imageUrl"),
+            spotify_url=data.get("spotifyUrl"),
+        )
+        db.session.add(fa)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------
+# API: Favorite songs
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/favorites/songs/<int:position>", methods=["PUT", "DELETE"])
+@login_required
+def api_favorite_song(position):
+    if position not in range(1, 5):
+        return jsonify({"error": "Position must be 1-4"}), 400
+
+    if request.method == "DELETE":
+        FavoriteSong.query.filter_by(
+            user_id=current_user.id, position=position
+        ).delete()
+        db.session.commit()
+        return jsonify({"success": True})
+
+    data = request.get_json(force=True)
+    fs = FavoriteSong.query.filter_by(
+        user_id=current_user.id, position=position
+    ).first()
+    if fs:
+        fs.spotify_id = data["spotifyId"]
+        fs.name = data["name"]
+        fs.artist = data["artist"]
+        fs.image_url = data.get("imageUrl")
+        fs.spotify_url = data.get("spotifyUrl")
+        fs.duration_ms = data.get("durationMs")
+    else:
+        fs = FavoriteSong(
+            user_id=current_user.id,
+            position=position,
+            spotify_id=data["spotifyId"],
+            name=data["name"],
+            artist=data["artist"],
+            image_url=data.get("imageUrl"),
+            spotify_url=data.get("spotifyUrl"),
+            duration_ms=data.get("durationMs"),
+        )
+        db.session.add(fs)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------
 # Template filters
 # ---------------------------------------------------------------------------
 
@@ -375,4 +560,4 @@ def duration_filter(ms):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=8888)

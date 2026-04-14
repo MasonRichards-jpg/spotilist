@@ -3,7 +3,7 @@
 <div class="flex h-screen overflow-hidden">
 
   <!-- Sidebar -->
-  <aside class="w-64 bg-sp-dark flex flex-col flex-shrink-0 border-r border-sp-card">
+  <aside class="w-64 bg-sp-dark flex flex-col flex-shrink-0 border-r border-sp-card shadow-sidebar">
     <!-- Logo -->
     <div class="p-6 pb-2">
       <span class="text-sp-green font-black text-2xl tracking-tight">Spotilist</span>
@@ -41,13 +41,33 @@
         </svg>
         Library
       </a>
+      <a href="{{ url_for('profile') }}"
+         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
+                {% if request.endpoint == 'profile' %}bg-sp-card text-white{% else %}text-sp-muted hover:text-white hover:bg-sp-card{% endif %}
+                transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+        </svg>
+        Profile
+      </a>
+      <a href="{{ url_for('friends') }}"
+         class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
+                {% if request.endpoint == 'friends' %}bg-sp-card text-white{% else %}text-sp-muted hover:text-white hover:bg-sp-card{% endif %}
+                transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        Friends
+      </a>
     </nav>
 
     <!-- User profile -->
     <div class="p-4 border-t border-sp-card">
       <div class="flex items-center gap-3 mb-3">
-        {% if current_user.image %}
-          <img src="{{ current_user.image }}" alt="avatar"
+        {% if current_user.custom_image or current_user.image %}
+          <img src="{{ current_user.custom_image or current_user.image }}" alt="avatar"
                class="w-9 h-9 rounded-full object-cover flex-shrink-0">
         {% else %}
           <div class="w-9 h-9 rounded-full bg-sp-card flex items-center justify-center flex-shrink-0">
@@ -75,7 +95,7 @@
 
 <!-- Add/Edit Library Modal -->
 <div id="library-modal" class="fixed inset-0 z-50 hidden bg-black/70 flex items-center justify-center p-4">
-  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-2xl">
+  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-modal">
     <div class="p-6">
       <!-- Header -->
       <div class="flex gap-4 mb-6">

@@ -4,25 +4,49 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Spotilist{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
           colors: {
-            'sp-black':  '#121212',
-            'sp-dark':   '#181818',
-            'sp-card':   '#282828',
-            'sp-green':  '#1DB954',
-            'sp-muted':  '#b3b3b3',
-            'sp-subtle': '#535353',
+            'sp-black':  '#0B1622',
+            'sp-dark':   '#151F2E',
+            'sp-card':   '#1D2C3F',
+            'sp-green':  '#3DB4F2',
+            'sp-muted':  '#9FADBD',
+            'sp-subtle': '#3D5466',
+          },
+          boxShadow: {
+            'card':    '0 4px 16px rgba(0,0,0,0.45)',
+            'card-lg': '0 8px 32px rgba(0,0,0,0.55)',
+            'sidebar': '4px 0 24px rgba(0,0,0,0.5)',
+            'modal':   '0 20px 60px rgba(0,0,0,0.7)',
           }
         }
       }
     }
   </script>
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0B1622; }
+    ::-webkit-scrollbar-thumb { background: #3D5466; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #9FADBD; }
+
+    /* Text selection */
+    ::selection { background: #3DB4F2; color: #0B1622; }
+
+    /* Smooth transitions for interactive elements */
+    button, a { transition-property: color, background-color, border-color, opacity, transform; transition-duration: 150ms; }
+  </style>
 </head>
-<body class="bg-sp-black text-white min-h-screen">
+<body class="bg-sp-black text-white min-h-screen font-sans antialiased">
   {% block content %}{% endblock %}
 </body>
 </html>

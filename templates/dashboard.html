@@ -19,15 +19,15 @@
 
   <!-- Stats row -->
   <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
-    <div class="bg-sp-dark rounded-xl p-5">
+    <div class="bg-sp-dark rounded-xl p-5 shadow-card">
       <p class="text-sp-muted text-xs uppercase tracking-widest font-bold mb-1">Total</p>
       <p class="text-4xl font-black">{{ total }}</p>
     </div>
-    <div class="bg-sp-dark rounded-xl p-5">
+    <div class="bg-sp-dark rounded-xl p-5 shadow-card">
       <p class="text-sp-muted text-xs uppercase tracking-widest font-bold mb-1">Completed</p>
       <p class="text-4xl font-black text-purple-400">{{ by_status.get('completed', 0) }}</p>
     </div>
-    <div class="bg-sp-dark rounded-xl p-5">
+    <div class="bg-sp-dark rounded-xl p-5 shadow-card">
       <p class="text-sp-muted text-xs uppercase tracking-widest font-bold mb-1">Avg Rating</p>
       <p class="text-4xl font-black">{{ avg_rating if avg_rating else '—' }}</p>
     </div>
@@ -42,7 +42,8 @@
     </div>
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
       {% for entry in recent %}
-      <div class="bg-sp-dark rounded-xl p-4 hover:bg-sp-card transition-colors">
+      <div class="bg-sp-dark rounded-xl p-4 hover:bg-sp-card transition-colors group relative cursor-pointer shadow-card hover:shadow-card-lg"
+           onclick="editRecentEntry({{ loop.index0 }})">
         {% if entry.image_url %}
         <img src="{{ entry.image_url }}" alt="{{ entry.name }}"
              class="w-full aspect-square object-cover rounded-lg mb-3">
@@ -57,6 +58,15 @@
         <span class="inline-block mt-1 text-xs {{ status_colors.get(entry.status, 'text-sp-muted') }}">
           {{ status_labels.get(entry.status, entry.status) }}
         </span>
+        <!-- Edit hint shown on hover -->
+        <div class="absolute top-2 right-2 hidden group-hover:flex">
+          <div class="w-7 h-7 rounded-full bg-black/60 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+          </div>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -111,6 +121,34 @@
 
 {% block page_scripts %}
 <script>
+  // Serialize recent library entries safely — referenced by index in onclick
+  const recentEntries = {{ recent | map(attribute='id') | list | tojson }};
+  const recentEntriesFull = [
+    {% for e in recent %}
+    {
+      id: {{ e.id | tojson }},
+      spotifyId: {{ e.spotify_id | tojson }},
+      type: {{ e.type | tojson }},
+      name: {{ e.name | tojson }},
+      artist: {{ e.artist | tojson }},
+      imageUrl: {{ (e.image_url or '') | tojson }},
+      spotifyUrl: {{ (e.spotify_url or '') | tojson }},
+      releaseDate: {{ (e.release_date or '') | tojson }},
+      durationMs: {{ e.duration_ms or 'null' }},
+      status: {{ e.status | tojson }},
+      rating: {{ e.rating or 'null' }},
+      review: {{ e.review | tojson if e.review else 'null' }},
+    },
+    {% endfor %}
+  ];
+
+  function editRecentEntry(i) {
+    const e = recentEntriesFull[i];
+    openModal(e.spotifyId, e.type, e.name, e.artist, e.imageUrl, e.spotifyUrl,
+              e.releaseDate, e.durationMs,
+              { id: e.id, status: e.status, rating: e.rating, review: e.review });
+  }
+
   // Pass server-side track list to JS — avoids broken onclick/tojson in attributes
   const recentTracks = {{ recently_played | tojson }};
 

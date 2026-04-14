@@ -1,0 +1,622 @@
+{% extends "app_layout.html" %}
+{% block title %}Profile — Spotilist{% endblock %}
+
+{% block main_content %}
+<div>
+
+  <!-- Banner -->
+  <div class="relative h-48 overflow-hidden bg-gradient-to-br from-sp-card via-sp-dark to-sp-black">
+    {% if current_user.banner_image %}
+    <img src="{{ current_user.banner_image }}" alt="banner"
+         class="w-full h-full object-cover">
+    {% endif %}
+    <label for="banner-upload"
+           class="absolute top-3 right-3 cursor-pointer bg-black/50 hover:bg-black/80
+                  text-white text-xs font-bold px-3 py-1.5 rounded-full transition-colors
+                  flex items-center gap-1.5">
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+      </svg>
+      Edit Banner
+    </label>
+    <input type="file" id="banner-upload" class="hidden" accept="image/*"
+           onchange="previewImage(this, 'banner')">
+  </div>
+
+  <!-- Avatar + username row -->
+  <div class="px-8 flex items-end gap-4 -mt-10 pb-5">
+    <div class="relative flex-shrink-0">
+      {% set display_image = current_user.custom_image or current_user.image %}
+      {% if display_image %}
+      <img src="{{ display_image }}" alt="avatar" id="profile-avatar"
+           class="w-24 h-24 rounded-full object-cover border-4 border-sp-black">
+      {% else %}
+      <div id="profile-avatar"
+           class="w-24 h-24 rounded-full bg-sp-card border-4 border-sp-black
+                  flex items-center justify-center">
+        <span class="text-3xl font-black">{{ (current_user.name or 'U')[0].upper() }}</span>
+      </div>
+      {% endif %}
+      <label for="pfp-upload"
+             class="absolute bottom-0.5 right-0.5 bg-sp-green text-black w-7 h-7 rounded-full
+                    flex items-center justify-center cursor-pointer
+                    hover:scale-110 transition-transform shadow-lg">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+      </label>
+      <input type="file" id="pfp-upload" class="hidden" accept="image/*"
+             onchange="previewImage(this, 'pfp')">
+    </div>
+    <div class="pb-1">
+      <h1 class="text-2xl font-black leading-tight">{{ current_user.name or 'User' }}</h1>
+      {% if current_user.created_at %}
+      <p class="text-sp-muted text-sm">
+        Member since {{ current_user.created_at.strftime('%B %Y') }}
+      </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="border-t border-b border-sp-card bg-sp-dark">
+    <div class="px-8 py-5 flex flex-wrap gap-x-10 gap-y-4">
+      <div class="text-center">
+        <p class="text-2xl font-black text-sp-green">{{ total_tracks }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Tracks</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black">{{ hours }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Hours</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black {% if avg_rating and avg_rating >= 7 %}text-sp-green{% endif %}">
+          {{ avg_rating if avg_rating else '—' }}
+        </p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Mean Score</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black">{{ total_albums }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Albums</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black text-purple-400">{{ completed }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Completed</p>
+      </div>
+      <div class="w-px bg-sp-card self-stretch hidden sm:block"></div>
+      <div class="text-center">
+        <p class="text-2xl font-black text-blue-400">{{ plan_to_listen }}</p>
+        <p class="text-xs text-sp-muted uppercase tracking-widest mt-0.5">Plan to Listen</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Currently Listening -->
+  <div id="profile-now-playing" class="px-8 pt-6"></div>
+
+  <!-- Content: Favorite Artists + Favorite Songs -->
+  <div class="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <!-- Favorite Artists -->
+    <div>
+      <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-4">
+        Favorite Artists
+      </h2>
+      <div class="grid grid-cols-2 gap-3">
+        {% for pos in range(1, 5) %}
+        {% set artist = fav_artists.get(pos) %}
+        {% if artist %}
+        <div class="relative group rounded-xl overflow-hidden cursor-pointer aspect-square bg-sp-card"
+             onclick="openArtistPicker({{ pos }})">
+          {% if artist.image_url %}
+          <img src="{{ artist.image_url }}" alt="{{ artist.name }}"
+               class="w-full h-full object-cover">
+          {% else %}
+          <div class="w-full h-full flex items-center justify-center">
+            <svg class="w-10 h-10 text-sp-subtle" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+            </svg>
+          </div>
+          {% endif %}
+          <!-- Gradient overlay with name -->
+          <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent
+                      flex items-end p-3">
+            <p class="text-sm font-bold truncate leading-tight">{{ artist.name }}</p>
+          </div>
+          <!-- Change overlay on hover -->
+          <div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center">
+            <span class="text-xs font-bold uppercase tracking-widest">Change</span>
+          </div>
+          <!-- Remove button -->
+          <button onclick="event.stopPropagation(); removeFavoriteArtist({{ pos }})"
+                  class="absolute top-2 right-2 w-6 h-6 bg-black/60 rounded-full
+                         hidden group-hover:flex items-center justify-center
+                         hover:bg-red-500 transition-colors">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        {% else %}
+        <button onclick="openArtistPicker({{ pos }})"
+                class="aspect-square bg-sp-dark rounded-xl border-2 border-dashed border-sp-subtle
+                       flex flex-col items-center justify-center gap-2
+                       hover:border-sp-green hover:text-sp-green transition-colors text-sp-muted">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          <span class="text-xs font-bold uppercase tracking-widest">Add Artist</span>
+        </button>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Favorite Songs -->
+    <div>
+      <h2 class="text-xs font-bold uppercase tracking-widest text-sp-muted mb-4">
+        Favorite Songs
+      </h2>
+      <div class="space-y-2">
+        {% for pos in range(1, 5) %}
+        {% set song = fav_songs.get(pos) %}
+        {% if song %}
+        <div class="flex items-center gap-3 p-3 bg-sp-dark rounded-xl group">
+          {% if song.image_url %}
+          <img src="{{ song.image_url }}" alt="{{ song.name }}"
+               class="w-12 h-12 rounded-lg object-cover flex-shrink-0">
+          {% else %}
+          <div class="w-12 h-12 rounded-lg bg-sp-card flex-shrink-0 flex items-center justify-center">
+            <svg class="w-5 h-5 text-sp-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+            </svg>
+          </div>
+          {% endif %}
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-bold truncate">{{ song.name }}</p>
+            <p class="text-xs text-sp-muted truncate">{{ song.artist }}</p>
+          </div>
+          <span class="text-xs text-sp-muted flex-shrink-0">{{ song.duration_ms | duration }}</span>
+          <div class="hidden group-hover:flex items-center gap-1 flex-shrink-0">
+            <button onclick="openSongPicker({{ pos }})"
+                    title="Change"
+                    class="w-7 h-7 rounded-full bg-sp-card hover:bg-sp-green hover:text-black
+                           flex items-center justify-center transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+              </svg>
+            </button>
+            <button onclick="removeFavoriteSong({{ pos }})"
+                    title="Remove"
+                    class="w-7 h-7 rounded-full bg-sp-card hover:bg-red-500
+                           flex items-center justify-center transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        {% else %}
+        <button onclick="openSongPicker({{ pos }})"
+                class="w-full flex items-center gap-3 p-3 bg-sp-dark rounded-xl
+                       border-2 border-dashed border-sp-subtle
+                       hover:border-sp-green hover:text-sp-green transition-colors text-sp-muted">
+          <div class="w-12 h-12 rounded-lg bg-sp-card flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+          </div>
+          <span class="text-sm font-bold">Add Favorite Song</span>
+        </button>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Image Upload Preview Modal -->
+<div id="img-preview-modal"
+     class="fixed inset-0 z-[60] hidden bg-black/80 flex items-center justify-center p-4">
+  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-5 py-4 border-b border-sp-subtle/30">
+      <div>
+        <h3 class="font-bold text-sm">Preview</h3>
+        <p class="text-sp-muted text-xs mt-0.5">This is how it will look on your profile</p>
+      </div>
+      <button onclick="cancelPreview()" class="text-sp-muted hover:text-white">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Banner Preview -->
+    <div id="banner-preview-section" class="hidden">
+      <div id="banner-preview-bg"
+           class="h-36 w-full bg-cover bg-center bg-sp-card"></div>
+      <div class="px-5 pb-5 -mt-8 flex items-end gap-3">
+        {% set display_image = current_user.custom_image or current_user.image %}
+        {% if display_image %}
+        <img src="{{ display_image }}" alt=""
+             class="w-16 h-16 rounded-full object-cover border-4 border-sp-dark flex-shrink-0">
+        {% else %}
+        <div class="w-16 h-16 rounded-full bg-sp-card border-4 border-sp-dark
+                    flex-shrink-0 flex items-center justify-center">
+          <span class="text-xl font-black">{{ (current_user.name or 'U')[0].upper() }}</span>
+        </div>
+        {% endif %}
+        <div class="pb-1 min-w-0">
+          <p class="font-bold text-sm truncate">{{ current_user.name or 'User' }}</p>
+          <p class="text-sp-muted text-xs">Member since {{ current_user.created_at.strftime('%B %Y') if current_user.created_at else '' }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PFP Preview -->
+    <div id="pfp-preview-section" class="hidden">
+      <div class="h-24 w-full bg-cover bg-center"
+           style="{% if current_user.banner_image %}background-image:url('{{ current_user.banner_image }}'){% else %}background:linear-gradient(135deg,#1D2C3F,#0B1622){% endif %}">
+      </div>
+      <div class="px-5 pb-5 -mt-8 flex items-end gap-3">
+        <img id="pfp-preview-img" src="" alt=""
+             class="w-16 h-16 rounded-full object-cover border-4 border-sp-dark flex-shrink-0">
+        <div class="pb-1 min-w-0">
+          <p class="font-bold text-sm truncate">{{ current_user.name or 'User' }}</p>
+          <p class="text-sp-muted text-xs">Member since {{ current_user.created_at.strftime('%B %Y') if current_user.created_at else '' }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="px-5 py-4 flex gap-3 border-t border-sp-subtle/30">
+      <button onclick="cancelPreview()"
+              class="flex-1 py-2.5 rounded-lg border border-sp-subtle text-sp-muted
+                     hover:text-white hover:border-white text-sm font-bold">
+        Cancel
+      </button>
+      <button id="preview-confirm-btn" onclick="confirmUpload()"
+              class="flex-1 py-2.5 rounded-lg bg-sp-green text-black font-bold text-sm
+                     hover:opacity-90 disabled:opacity-50">
+        <span id="preview-save-label">Save</span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Artist Picker Modal -->
+<div id="artist-picker-modal"
+     class="fixed inset-0 z-50 hidden bg-black/70 flex items-center justify-center p-4">
+  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-2xl">
+    <div class="p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg">Choose Favorite Artist</h3>
+        <button onclick="closeArtistPicker()" class="text-sp-muted hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <input type="text" id="artist-search-input" placeholder="Search for an artist..."
+             class="w-full bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                    focus:outline-none focus:border-sp-green mb-4"
+             oninput="searchArtists(this.value)">
+      <div id="artist-results" class="space-y-1 max-h-72 overflow-y-auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Song Picker Modal -->
+<div id="song-picker-modal"
+     class="fixed inset-0 z-50 hidden bg-black/70 flex items-center justify-center p-4">
+  <div class="bg-sp-dark rounded-xl w-full max-w-md shadow-2xl">
+    <div class="p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg">Choose Favorite Song</h3>
+        <button onclick="closeSongPicker()" class="text-sp-muted hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <input type="text" id="song-search-input" placeholder="Search for a song..."
+             class="w-full bg-sp-card border border-sp-subtle rounded-lg px-3 py-2 text-sm
+                    focus:outline-none focus:border-sp-green mb-4"
+             oninput="searchSongs(this.value)">
+      <div id="song-results" class="space-y-1 max-h-72 overflow-y-auto"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  // ── Currently Listening ──────────────────────────────────────────────────
+  async function loadNowPlaying() {
+    const section = document.getElementById('profile-now-playing');
+    try {
+      const resp = await fetch('/api/spotify/currently-playing');
+      const data = await resp.json();
+      if (!data || !data.item || !data.is_playing) {
+        section.innerHTML = '';
+        return;
+      }
+      const track  = data.item;
+      const artist = (track.artists || []).map(a => a.name).join(', ');
+      const image  = track.album?.images?.[0]?.url || '';
+      const pct    = data.progress_ms && track.duration_ms
+                     ? Math.round(data.progress_ms / track.duration_ms * 100) : 0;
+      const mins = m => `${Math.floor(m/60000)}:${String(Math.floor((m%60000)/1000)).padStart(2,'0')}`;
+
+      section.innerHTML = `
+        <div class="bg-sp-dark border border-sp-subtle/40 rounded-xl p-4 flex items-center gap-4 max-w-2xl">
+          ${image ? `<img src="${escH(image)}" class="w-14 h-14 rounded-lg object-cover flex-shrink-0 shadow-lg">` : ''}
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="inline-block w-2 h-2 rounded-full bg-sp-green animate-pulse"></span>
+              <span class="text-xs text-sp-muted uppercase tracking-widest font-semibold">Now Playing</span>
+            </div>
+            <p class="font-bold truncate text-sm">${escH(track.name)}</p>
+            <p class="text-sp-muted text-xs truncate">${escH(artist)}</p>
+            <div class="mt-2 flex items-center gap-2">
+              <div class="flex-1 h-1 bg-sp-card rounded-full overflow-hidden">
+                <div class="h-full bg-sp-green rounded-full transition-all" style="width:${pct}%"></div>
+              </div>
+              <span class="text-xs text-sp-muted flex-shrink-0">${mins(data.progress_ms)} / ${mins(track.duration_ms)}</span>
+            </div>
+          </div>
+        </div>`;
+    } catch (e) {
+      section.innerHTML = '';
+    }
+  }
+
+  loadNowPlaying();
+  setInterval(loadNowPlaying, 30000);
+
+  let currentArtistPosition = null;
+  let currentSongPosition   = null;
+  let artistTimer = null;
+  let songTimer   = null;
+  let artistResultsList = [];
+  let songResultsList   = [];
+
+  // ── Profile image preview + upload ──────────────────────────────────────
+
+  let _pendingFile = null;
+  let _pendingType = null; // 'pfp' or 'banner'
+
+  function previewImage(input, type) {
+    if (!input.files[0]) return;
+    _pendingFile = input.files[0];
+    _pendingType = type;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      // Show the correct section
+      document.getElementById('banner-preview-section').classList.add('hidden');
+      document.getElementById('pfp-preview-section').classList.add('hidden');
+      if (type === 'banner') {
+        document.getElementById('banner-preview-bg').style.backgroundImage = `url('${dataUrl}')`;
+        document.getElementById('banner-preview-section').classList.remove('hidden');
+        document.getElementById('preview-save-label').textContent = 'Save Banner';
+      } else {
+        document.getElementById('pfp-preview-img').src = dataUrl;
+        document.getElementById('pfp-preview-section').classList.remove('hidden');
+        document.getElementById('preview-save-label').textContent = 'Save Photo';
+      }
+      document.getElementById('img-preview-modal').classList.remove('hidden');
+    };
+    reader.readAsDataURL(_pendingFile);
+  }
+
+  function cancelPreview() {
+    document.getElementById('img-preview-modal').classList.add('hidden');
+    document.getElementById('banner-upload').value = '';
+    document.getElementById('pfp-upload').value = '';
+    _pendingFile = null;
+    _pendingType = null;
+  }
+
+  async function confirmUpload() {
+    const btn = document.getElementById('preview-confirm-btn');
+    const label = document.getElementById('preview-save-label');
+    btn.disabled = true;
+    label.textContent = 'Saving…';
+
+    const form = new FormData();
+    form.append('file', _pendingFile);
+    const endpoint = _pendingType === 'banner' ? '/api/profile/banner' : '/api/profile/picture';
+    const resp = await fetch(endpoint, { method: 'POST', body: form });
+
+    if (resp.ok) {
+      if (_pendingType === 'pfp') {
+        const data = await resp.json();
+        const el = document.getElementById('profile-avatar');
+        const ts = '?t=' + Date.now();
+        if (el.tagName === 'IMG') {
+          el.src = data.imageUrl + ts;
+        } else {
+          const img = document.createElement('img');
+          img.id = 'profile-avatar';
+          img.src = data.imageUrl + ts;
+          img.alt = 'avatar';
+          img.className = 'w-24 h-24 rounded-full object-cover border-4 border-sp-black';
+          el.replaceWith(img);
+        }
+        document.querySelectorAll('img[alt="avatar"]').forEach(i => {
+          if (i.id !== 'profile-avatar') i.src = data.imageUrl + ts;
+        });
+        document.getElementById('img-preview-modal').classList.add('hidden');
+      } else {
+        location.reload();
+      }
+    } else {
+      label.textContent = 'Error — try again';
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('img-preview-modal').addEventListener('click', function(e) {
+    if (e.target === this) cancelPreview();
+  });
+
+  // ── Artist Picker ────────────────────────────────────────────────────────
+
+  function openArtistPicker(pos) {
+    currentArtistPosition = pos;
+    document.getElementById('artist-search-input').value = '';
+    document.getElementById('artist-results').innerHTML = '';
+    document.getElementById('artist-picker-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('artist-search-input').focus(), 50);
+  }
+
+  function closeArtistPicker() {
+    document.getElementById('artist-picker-modal').classList.add('hidden');
+    currentArtistPosition = null;
+  }
+
+  function searchArtists(q) {
+    clearTimeout(artistTimer);
+    if (!q.trim()) {
+      document.getElementById('artist-results').innerHTML = '';
+      return;
+    }
+    artistTimer = setTimeout(async () => {
+      const resp = await fetch('/api/spotify/search?q=' + encodeURIComponent(q) + '&types=artist');
+      const data = await resp.json();
+      artistResultsList = data.artists?.items || [];
+      const container = document.getElementById('artist-results');
+      if (!artistResultsList.length) {
+        container.innerHTML = '<p class="text-sp-muted text-sm text-center py-4">No results</p>';
+        return;
+      }
+      container.innerHTML = artistResultsList.map((a, i) => {
+        const img = a.images?.[0]?.url || '';
+        return `
+          <button onclick="selectArtist(${i})"
+                  class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-sp-card transition-colors text-left">
+            ${img
+              ? `<img src="${escH(img)}" class="w-10 h-10 rounded-full object-cover flex-shrink-0">`
+              : `<div class="w-10 h-10 rounded-full bg-sp-card flex-shrink-0"></div>`}
+            <span class="text-sm font-medium truncate">${escH(a.name)}</span>
+          </button>`;
+      }).join('');
+    }, 400);
+  }
+
+  async function selectArtist(i) {
+    const a = artistResultsList[i];
+    const resp = await fetch(`/api/favorites/artists/${currentArtistPosition}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        spotifyId: a.id,
+        name: a.name,
+        imageUrl: a.images?.[0]?.url || null,
+        spotifyUrl: a.external_urls?.spotify || null,
+      }),
+    });
+    if (resp.ok) { closeArtistPicker(); location.reload(); }
+  }
+
+  async function removeFavoriteArtist(pos) {
+    const resp = await fetch(`/api/favorites/artists/${pos}`, { method: 'DELETE' });
+    if (resp.ok) location.reload();
+  }
+
+  // ── Song Picker ──────────────────────────────────────────────────────────
+
+  function openSongPicker(pos) {
+    currentSongPosition = pos;
+    document.getElementById('song-search-input').value = '';
+    document.getElementById('song-results').innerHTML = '';
+    document.getElementById('song-picker-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('song-search-input').focus(), 50);
+  }
+
+  function closeSongPicker() {
+    document.getElementById('song-picker-modal').classList.add('hidden');
+    currentSongPosition = null;
+  }
+
+  function searchSongs(q) {
+    clearTimeout(songTimer);
+    if (!q.trim()) {
+      document.getElementById('song-results').innerHTML = '';
+      return;
+    }
+    songTimer = setTimeout(async () => {
+      const resp = await fetch('/api/spotify/search?q=' + encodeURIComponent(q) + '&types=track');
+      const data = await resp.json();
+      songResultsList = data.tracks?.items || [];
+      const container = document.getElementById('song-results');
+      if (!songResultsList.length) {
+        container.innerHTML = '<p class="text-sp-muted text-sm text-center py-4">No results</p>';
+        return;
+      }
+      container.innerHTML = songResultsList.map((t, i) => {
+        const img    = t.album?.images?.[0]?.url || '';
+        const artist = (t.artists || []).map(a => a.name).join(', ');
+        return `
+          <button onclick="selectSong(${i})"
+                  class="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-sp-card transition-colors text-left">
+            ${img
+              ? `<img src="${escH(img)}" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">`
+              : `<div class="w-10 h-10 rounded-lg bg-sp-card flex-shrink-0"></div>`}
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium truncate">${escH(t.name)}</p>
+              <p class="text-xs text-sp-muted truncate">${escH(artist)}</p>
+            </div>
+          </button>`;
+      }).join('');
+    }, 400);
+  }
+
+  async function selectSong(i) {
+    const t = songResultsList[i];
+    const artist = (t.artists || []).map(a => a.name).join(', ');
+    const resp = await fetch(`/api/favorites/songs/${currentSongPosition}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        spotifyId: t.id,
+        name: t.name,
+        artist: artist,
+        imageUrl: t.album?.images?.[0]?.url || null,
+        spotifyUrl: t.external_urls?.spotify || null,
+        durationMs: t.duration_ms || null,
+      }),
+    });
+    if (resp.ok) { closeSongPicker(); location.reload(); }
+  }
+
+  async function removeFavoriteSong(pos) {
+    const resp = await fetch(`/api/favorites/songs/${pos}`, { method: 'DELETE' });
+    if (resp.ok) location.reload();
+  }
+
+  // Close modals on backdrop click
+  document.getElementById('artist-picker-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeArtistPicker();
+  });
+  document.getElementById('song-picker-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSongPicker();
+  });
+</script>
+{% endblock %}

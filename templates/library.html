@@ -44,7 +44,20 @@
   {% if entries %}
   <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
     {% for entry in entries %}
-    <div class="bg-sp-dark rounded-xl p-4 hover:bg-sp-card transition-colors group relative">
+    <div class="bg-sp-dark rounded-xl p-4 hover:bg-sp-card transition-colors group relative cursor-pointer shadow-card hover:shadow-card-lg"
+         data-id="{{ entry.id }}"
+         data-spotify-id="{{ entry.spotify_id }}"
+         data-type="{{ entry.type }}"
+         data-name="{{ entry.name }}"
+         data-artist="{{ entry.artist }}"
+         data-image="{{ entry.image_url or '' }}"
+         data-spotify-url="{{ entry.spotify_url or '' }}"
+         data-release="{{ entry.release_date or '' }}"
+         data-duration="{{ entry.duration_ms or '' }}"
+         data-status="{{ entry.status }}"
+         data-rating="{{ entry.rating or '' }}"
+         data-review="{{ entry.review or '' }}"
+         onclick="editFromCard(this)">
       <!-- Image -->
       {% if entry.image_url %}
       <img src="{{ entry.image_url }}" alt="{{ entry.name }}"
@@ -66,27 +79,18 @@
         {{ status_labels.get(entry.status, entry.status) }}
       </span>
       {% if entry.rating %}
-      <p class="text-xs text-sp-green mt-1">★ {{ entry.rating }}/10</p>
+      <p class="text-xs text-sp-green mt-1 flex items-center gap-1">
+        ★ {{ entry.rating }}/10
+        <span class="text-sp-subtle text-xs opacity-0 group-hover:opacity-100 transition-opacity">(click to edit)</span>
+      </p>
+      {% else %}
+      <p class="text-xs text-sp-subtle mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to rate</p>
       {% endif %}
 
-      <!-- Actions (shown on hover) -->
-      <div class="absolute top-3 right-3 hidden group-hover:flex gap-1">
-        <button title="Edit"
-                onclick="editEntry('{{ entry.id }}', '{{ entry.spotify_id }}', '{{ entry.type }}',
-                                   {{ entry.name | tojson }}, {{ entry.artist | tojson }},
-                                   '{{ entry.image_url or '' }}', '{{ entry.spotify_url or '' }}',
-                                   '{{ entry.release_date or '' }}', {{ entry.duration_ms or 'null' }},
-                                   '{{ entry.status }}', {{ entry.rating or 'null' }},
-                                   {{ entry.review | tojson if entry.review else 'null' }})"
-                class="w-8 h-8 rounded-full bg-sp-card hover:bg-sp-green hover:text-black
-                       flex items-center justify-center transition-colors">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-          </svg>
-        </button>
+      <!-- Delete button (shown on hover) -->
+      <div class="absolute top-3 right-3 hidden group-hover:flex">
         <button title="Delete"
-                onclick="deleteEntry('{{ entry.id }}', this)"
+                onclick="event.stopPropagation(); deleteEntry('{{ entry.id }}', this)"
                 class="w-8 h-8 rounded-full bg-sp-card hover:bg-red-500
                        flex items-center justify-center transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -121,10 +125,19 @@
 
 {% block page_scripts %}
 <script>
-  function editEntry(id, spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, status, rating, review) {
-    openModal(spotifyId, type, name, artist, imageUrl, spotifyUrl, releaseDate, durationMs, {
-      id, status, rating, review
-    });
+  function editFromCard(el) {
+    const d = el.dataset;
+    openModal(
+      d.spotifyId, d.type, d.name, d.artist,
+      d.image, d.spotifyUrl, d.release,
+      d.duration ? parseInt(d.duration) : null,
+      {
+        id:     d.id,
+        status: d.status,
+        rating: d.rating ? parseInt(d.rating) : null,
+        review: d.review || null,
+      }
+    );
   }
 
   async function deleteEntry(id, btn) {
