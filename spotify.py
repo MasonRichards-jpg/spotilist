@@ -113,3 +113,10 @@ def currently_playing(token):
     if resp.status_code == 204 or not resp.content:
         return None
     return resp.json()
+
+
+def get_tracks(token, track_ids):
+    """Fetch up to 50 tracks by ID in a single request. Returns list of track objects."""
+    ids_str = ",".join(track_ids[:50])
+    data = spotify_get(token, "/tracks", {"ids": ids_str})
+    return data.get("tracks", [])

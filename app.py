@@ -825,6 +825,111 @@ def api_pending_count():
 
 
 # ---------------------------------------------------------------------------
+# API: Spotify history import
+# ---------------------------------------------------------------------------
+
+@app.route("/api/library/import-history", methods=["POST"])
+@login_required
+def api_import_history():
+    import json as _json
+
+    f = request.files.get("file")
+    if not f or not f.filename.lower().endswith(".json"):
+        return jsonify({"error": "Please upload a JSON file"}), 400
+
+    try:
+        data = _json.loads(f.read())
+    except Exception:
+        return jsonify({"error": "Invalid JSON file"}), 400
+
+    if not isinstance(data, list):
+        return jsonify({"error": "Expected a JSON array"}), 400
+
+    # Deduplicate unique tracks (skip podcasts / audiobooks with no track URI)
+    seen = {}
+    for item in data:
+        uri = item.get("spotify_track_uri")
+        name = item.get("master_metadata_track_name")
+        artist = item.get("master_metadata_album_artist_name")
+        if not uri or not name or not uri.startswith("spotify:track:"):
+            continue
+        if uri not in seen:
+            seen[uri] = {"name": name, "artist": artist or ""}
+
+    if not seen:
+        return jsonify({"imported": 0, "skipped": 0,
+                        "message": "No valid tracks found in file"}), 200
+
+    # Determine which track IDs are already in the library
+    existing_ids = {
+        row.spotify_id
+        for row in LibraryEntry.query.filter_by(user_id=current_user.id)
+        .with_entities(LibraryEntry.spotify_id)
+    }
+
+    new_items = {
+        uri: info for uri, info in seen.items()
+        if uri.split(":")[-1] not in existing_ids
+    }
+    skipped = len(seen) - len(new_items)
+
+    if not new_items:
+        return jsonify({"imported": 0, "skipped": skipped,
+                        "message": "All tracks already in library"}), 200
+
+    # Batch-fetch full track details from Spotify (50 per request)
+    token = sp.get_valid_token(current_user)
+    track_id_list = [uri.split(":")[-1] for uri in new_items]
+    track_details = {}
+    for i in range(0, len(track_id_list), 50):
+        batch = track_id_list[i:i + 50]
+        try:
+            tracks = sp.get_tracks(token, batch)
+            for t in tracks:
+                if t:
+                    track_details[t["id"]] = t
+        except Exception:
+            pass  # Fall back to minimal data for this batch
+
+    new_entries = []
+    for uri, fallback in new_items.items():
+        track_id = uri.split(":")[-1]
+        t = track_details.get(track_id)
+        if t:
+            artist = ", ".join(a["name"] for a in t.get("artists", []))
+            images = t.get("album", {}).get("images", [])
+            new_entries.append(LibraryEntry(
+                user_id=current_user.id,
+                spotify_id=track_id,
+                type="track",
+                name=t["name"],
+                artist=artist,
+                image_url=images[0]["url"] if images else None,
+                release_date=t.get("album", {}).get("release_date"),
+                spotify_url=t.get("external_urls", {}).get("spotify"),
+                duration_ms=t.get("duration_ms"),
+                status="completed",
+            ))
+        else:
+            # Spotify lookup failed — store with data from the history file
+            new_entries.append(LibraryEntry(
+                user_id=current_user.id,
+                spotify_id=track_id,
+                type="track",
+                name=fallback["name"],
+                artist=fallback["artist"],
+                spotify_url=f"https://open.spotify.com/track/{track_id}",
+                status="completed",
+            ))
+
+    if new_entries:
+        db.session.add_all(new_entries)
+        db.session.commit()
+
+    return jsonify({"imported": len(new_entries), "skipped": skipped})
+
+
+# ---------------------------------------------------------------------------
 # Template filters
 # ---------------------------------------------------------------------------
 
