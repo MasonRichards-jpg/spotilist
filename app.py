@@ -950,6 +950,7 @@ def api_refresh_art():
         LibraryEntry.query
         .filter_by(user_id=current_user.id, type="track")
         .filter(LibraryEntry.image_url.is_(None))
+        .limit(500)
         .all()
     )
     if not entries:
@@ -958,8 +959,8 @@ def api_refresh_art():
     token = sp.get_valid_token(current_user)
     entry_map = {e.spotify_id: e for e in entries}
     track_id_list = list(entry_map)
+    updated = 0
 
-    # Batch lookup
     for i in range(0, len(track_id_list), 50):
         batch = track_id_list[i:i + 50]
         try:
@@ -968,29 +969,14 @@ def api_refresh_art():
                 images = t.get("album", {}).get("images", [])
                 if images:
                     entry.image_url = images[0]["url"]
+                    updated += 1
                 entry.duration_ms = entry.duration_ms or t.get("duration_ms")
                 entry.release_date = entry.release_date or t.get("album", {}).get("release_date")
                 entry.spotify_url = entry.spotify_url or t.get("external_urls", {}).get("spotify")
         except Exception:
             pass
-
-    # Search fallback for anything still missing
-    for track_id, entry in entry_map.items():
-        if entry.image_url:
-            continue
-        try:
-            results = sp.search(token, f"{entry.name} {entry.artist}", types="track", limit=1)
-            items = results.get("tracks", {}).get("items", [])
-            if items:
-                images = items[0].get("album", {}).get("images", [])
-                if images:
-                    entry.image_url = images[0]["url"]
-        except Exception:
-            pass
-
-    updated = sum(1 for e in entries if e.image_url)
-    if updated:
         db.session.commit()
+
     return jsonify({"updated": updated})
 
 
