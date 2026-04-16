@@ -855,10 +855,13 @@ def api_import_history():
         uri = item.get("spotify_track_uri")
         name = item.get("master_metadata_track_name")
         artist = item.get("master_metadata_album_artist_name")
+        ms = item.get("ms_played") or 0
         if not uri or not name or not uri.startswith("spotify:track:"):
             continue
         if uri not in seen:
-            seen[uri] = {"name": name, "artist": artist or ""}
+            seen[uri] = {"name": name, "artist": artist or "", "max_ms": ms}
+        else:
+            seen[uri]["max_ms"] = max(seen[uri]["max_ms"], ms)
 
     if not seen:
         return jsonify({"imported": 0, "skipped": 0,
@@ -886,14 +889,16 @@ def api_import_history():
     if len(new_items) > IMPORT_CAP:
         new_items = dict(list(new_items.items())[:IMPORT_CAP])
 
-    # Batch-fetch full track details from Spotify (50 per request)
+    # Fetch track details via search (batch /tracks endpoint requires elevated permissions)
     token = sp.get_valid_token(current_user)
-    track_id_list = [uri.split(":")[-1] for uri in new_items]
     track_details = {}
-    for i in range(0, len(track_id_list), 50):
-        batch = track_id_list[i:i + 50]
+    for uri, info in new_items.items():
+        track_id = uri.split(":")[-1]
         try:
-            track_details.update(sp.get_tracks(token, batch))
+            results = sp.search(token, f"{info['name']} {info['artist']}", types="track", limit=1)
+            items = results.get("tracks", {}).get("items", [])
+            if items:
+                track_details[track_id] = items[0]
         except Exception:
             pass
 
@@ -916,7 +921,7 @@ def api_import_history():
                 image_url=images[0]["url"] if images else None,
                 release_date=t.get("album", {}).get("release_date"),
                 spotify_url=t.get("external_urls", {}).get("spotify"),
-                duration_ms=t.get("duration_ms"),
+                duration_ms=t.get("duration_ms") or fallback.get("max_ms") or None,
                 status="completed",
             ))
         else:
@@ -927,6 +932,7 @@ def api_import_history():
                 name=fallback["name"],
                 artist=fallback["artist"],
                 spotify_url=f"https://open.spotify.com/track/{track_id}",
+                duration_ms=fallback.get("max_ms") or None,
                 status="completed",
             ))
         if len(chunk) >= CHUNK:
@@ -950,22 +956,21 @@ def api_refresh_art():
         LibraryEntry.query
         .filter_by(user_id=current_user.id, type="track")
         .filter(LibraryEntry.image_url.is_(None))
-        .limit(500)
+        .limit(75)
         .all()
     )
     if not entries:
         return jsonify({"updated": 0, "message": "No tracks missing art"})
 
     token = sp.get_valid_token(current_user)
-    entry_map = {e.spotify_id: e for e in entries}
-    track_id_list = list(entry_map)
     updated = 0
 
-    for i in range(0, len(track_id_list), 50):
-        batch = track_id_list[i:i + 50]
+    for entry in entries:
         try:
-            for track_id, t in sp.get_tracks(token, batch).items():
-                entry = entry_map[track_id]
+            results = sp.search(token, f"{entry.name} {entry.artist}", types="track", limit=1)
+            items = results.get("tracks", {}).get("items", [])
+            if items:
+                t = items[0]
                 images = t.get("album", {}).get("images", [])
                 if images:
                     entry.image_url = images[0]["url"]
@@ -975,8 +980,9 @@ def api_refresh_art():
                 entry.spotify_url = entry.spotify_url or t.get("external_urls", {}).get("spotify")
         except Exception:
             pass
-        db.session.commit()
 
+    if updated:
+        db.session.commit()
     return jsonify({"updated": updated})
 
 
