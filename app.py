@@ -32,6 +32,10 @@ if _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,   # discard stale connections before use
+    "pool_recycle": 280,     # recycle before Render's ~5 min idle timeout
+}
 
 db.init_app(app)
 
