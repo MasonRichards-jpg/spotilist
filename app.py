@@ -881,6 +881,11 @@ def api_import_history():
         return jsonify({"imported": 0, "skipped": skipped,
                         "message": "All tracks already in library"}), 200
 
+    # Cap to avoid memory exhaustion on very large history files
+    IMPORT_CAP = 1000
+    if len(new_items) > IMPORT_CAP:
+        new_items = dict(list(new_items.items())[:IMPORT_CAP])
+
     # Batch-fetch full track details from Spotify (50 per request)
     token = sp.get_valid_token(current_user)
     track_id_list = [uri.split(":")[-1] for uri in new_items]
@@ -890,32 +895,19 @@ def api_import_history():
         try:
             track_details.update(sp.get_tracks(token, batch))
         except Exception:
-            pass  # Fall back to search for this batch
-
-    # Search fallback for tracks the batch lookup missed (removed/relinked tracks)
-    missing_ids = [tid for tid in track_id_list if tid not in track_details]
-    for track_id in missing_ids:
-        uri_key = f"spotify:track:{track_id}"
-        fb = new_items.get(uri_key, {})
-        name, artist = fb.get("name", ""), fb.get("artist", "")
-        if not name:
-            continue
-        try:
-            results = sp.search(token, f"{name} {artist}", types="track", limit=1)
-            items = results.get("tracks", {}).get("items", [])
-            if items:
-                track_details[track_id] = items[0]
-        except Exception:
             pass
 
-    new_entries = []
+    # Build and commit entries in chunks to keep memory usage flat
+    imported = 0
+    CHUNK = 100
+    chunk = []
     for uri, fallback in new_items.items():
         track_id = uri.split(":")[-1]
         t = track_details.get(track_id)
         if t:
             artist = ", ".join(a["name"] for a in t.get("artists", []))
             images = t.get("album", {}).get("images", [])
-            new_entries.append(LibraryEntry(
+            chunk.append(LibraryEntry(
                 user_id=current_user.id,
                 spotify_id=track_id,
                 type="track",
@@ -928,8 +920,7 @@ def api_import_history():
                 status="completed",
             ))
         else:
-            # Spotify lookup failed — store with data from the history file
-            new_entries.append(LibraryEntry(
+            chunk.append(LibraryEntry(
                 user_id=current_user.id,
                 spotify_id=track_id,
                 type="track",
@@ -938,12 +929,18 @@ def api_import_history():
                 spotify_url=f"https://open.spotify.com/track/{track_id}",
                 status="completed",
             ))
+        if len(chunk) >= CHUNK:
+            db.session.add_all(chunk)
+            db.session.commit()
+            imported += len(chunk)
+            chunk = []
 
-    if new_entries:
-        db.session.add_all(new_entries)
+    if chunk:
+        db.session.add_all(chunk)
         db.session.commit()
+        imported += len(chunk)
 
-    return jsonify({"imported": len(new_entries), "skipped": skipped})
+    return jsonify({"imported": imported, "skipped": skipped})
 
 
 @app.route("/api/library/refresh-art", methods=["POST"])
