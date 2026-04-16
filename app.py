@@ -884,12 +884,25 @@ def api_import_history():
     for i in range(0, len(track_id_list), 50):
         batch = track_id_list[i:i + 50]
         try:
-            tracks = sp.get_tracks(token, batch)
-            for t in tracks:
-                if t:
-                    track_details[t["id"]] = t
+            track_details.update(sp.get_tracks(token, batch))
         except Exception:
-            pass  # Fall back to minimal data for this batch
+            pass  # Fall back to search for this batch
+
+    # Search fallback for tracks the batch lookup missed (removed/relinked tracks)
+    missing_ids = [tid for tid in track_id_list if tid not in track_details]
+    for track_id in missing_ids:
+        uri_key = f"spotify:track:{track_id}"
+        fb = new_items.get(uri_key, {})
+        name, artist = fb.get("name", ""), fb.get("artist", "")
+        if not name:
+            continue
+        try:
+            results = sp.search(token, f"{name} {artist}", types="track", limit=1)
+            items = results.get("tracks", {}).get("items", [])
+            if items:
+                track_details[track_id] = items[0]
+        except Exception:
+            pass
 
     new_entries = []
     for uri, fallback in new_items.items():
@@ -927,6 +940,57 @@ def api_import_history():
         db.session.commit()
 
     return jsonify({"imported": len(new_entries), "skipped": skipped})
+
+
+@app.route("/api/library/refresh-art", methods=["POST"])
+@login_required
+def api_refresh_art():
+    entries = (
+        LibraryEntry.query
+        .filter_by(user_id=current_user.id, type="track")
+        .filter(LibraryEntry.image_url.is_(None))
+        .all()
+    )
+    if not entries:
+        return jsonify({"updated": 0, "message": "No tracks missing art"})
+
+    token = sp.get_valid_token(current_user)
+    entry_map = {e.spotify_id: e for e in entries}
+    track_id_list = list(entry_map)
+
+    # Batch lookup
+    for i in range(0, len(track_id_list), 50):
+        batch = track_id_list[i:i + 50]
+        try:
+            for track_id, t in sp.get_tracks(token, batch).items():
+                entry = entry_map[track_id]
+                images = t.get("album", {}).get("images", [])
+                if images:
+                    entry.image_url = images[0]["url"]
+                entry.duration_ms = entry.duration_ms or t.get("duration_ms")
+                entry.release_date = entry.release_date or t.get("album", {}).get("release_date")
+                entry.spotify_url = entry.spotify_url or t.get("external_urls", {}).get("spotify")
+        except Exception:
+            pass
+
+    # Search fallback for anything still missing
+    for track_id, entry in entry_map.items():
+        if entry.image_url:
+            continue
+        try:
+            results = sp.search(token, f"{entry.name} {entry.artist}", types="track", limit=1)
+            items = results.get("tracks", {}).get("items", [])
+            if items:
+                images = items[0].get("album", {}).get("images", [])
+                if images:
+                    entry.image_url = images[0]["url"]
+        except Exception:
+            pass
+
+    updated = sum(1 for e in entries if e.image_url)
+    if updated:
+        db.session.commit()
+    return jsonify({"updated": updated})
 
 
 # ---------------------------------------------------------------------------

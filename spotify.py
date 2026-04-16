@@ -116,7 +116,10 @@ def currently_playing(token):
 
 
 def get_tracks(token, track_ids):
-    """Fetch up to 50 tracks by ID in a single request. Returns list of track objects."""
-    ids_str = ",".join(track_ids[:50])
+    """Fetch up to 50 tracks by ID. Returns dict {requested_id: track_object} for found tracks."""
+    batch = track_ids[:50]
+    ids_str = ",".join(batch)
     data = spotify_get(token, "/tracks", {"ids": ids_str})
-    return data.get("tracks", [])
+    tracks = data.get("tracks", [])
+    # Zip by position so relinked tracks (different response id) still map correctly.
+    return {tid: t for tid, t in zip(batch, tracks) if t}
